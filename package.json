@@ -1,0 +1,31 @@
+{
+  "name": "invite-fatureiro",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Fatureiro da Invite Energy: captura mensal de faturas de energia (Neoenergia Elektro e CPFL) via API Infosimples, com cofre de credenciais, agendamento, retries por código, controle de gasto e pendências.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "fatureiro": "tsx src/cli.ts",
+    "migrar": "tsx src/cli.ts migrar"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1167.0",
+    "aes-bridge": "^2.1.0",
+    "pg": "^8.23.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "@types/pg": "^8.23.1",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.0",
+    "vitest": "^5.1.0"
+  }
+}
