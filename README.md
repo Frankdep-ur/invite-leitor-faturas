@@ -24,8 +24,9 @@ Os clientes autorizaram por contrato o uso das credenciais.
   age na janela; sem isso, vai para revisão manual.
 - Um navegador por vez; um login por cliente (baixa todas as UCs dele em
   sequência); pausas de cortesia entre clientes.
-- O portal bloqueia acesso vindo de data center: o robô roda numa máquina da
-  Invite com internet comum (ver `docs/TESTE-DE-CAMPO.md`).
+- Uso supervisionado: o robô roda no computador de quem opera, com a janela
+  visível. Não roda escondido em servidor e não contorna bloqueio: se o portal
+  recusar o acesso automatizado, ele para (ver `docs/TESTE-DE-CAMPO.md`).
 
 ### Leitor próprio de PDF
 

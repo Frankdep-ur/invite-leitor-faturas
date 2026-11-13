@@ -4,10 +4,11 @@ Objetivo: rodar o robô **uma vez** com a cliente-teste, no portal de verdade,
 e ver se ele entra, acha a UC e baixa a fatura. Nada vai para banco de dados;
 tudo fica numa pasta no seu Mac.
 
-> **Por que no Mac e não na nuvem?** O portal da Neoenergia bloqueia acesso
-> vindo de data center ("Access Denied" já na primeira tela — testado). Do seu
-> Mac, com a sua internet e o Chrome normal, o acesso é igual ao de uma pessoa.
-> O robô não esconde que é automação: se o portal bloquear, ele para.
+> **Por que no Mac?** É um teste supervisionado: roda no computador de quem
+> opera, com você vendo a janela. Daqui da nuvem o portal recusou o navegador
+> automatizado já na primeira tela, e nós não tentamos contornar isso. O robô
+> não esconde que é automação: se o portal recusar no seu Mac também, ele para
+> — e o caminho passa a ser a fatura digital por e-mail ou a Infosimples.
 
 ---
 
