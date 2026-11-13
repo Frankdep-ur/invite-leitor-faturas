@@ -52,6 +52,24 @@ export interface TributosFatura {
   icms?: number | null;
   /** Valor do ICMS em R$, quando a fatura informa. */
   icmsValor?: number | null;
+  pisValor?: number | null;
+  cofinsValor?: number | null;
+  /** Contribuição de iluminação pública (R$). */
+  iluminacaoPublica?: number | null;
+}
+
+/** Item da fatura (linha do quadro "Itens de fatura"). */
+export interface ItemFatura {
+  descricao: string;
+  unidade: string | null;
+  quantidade: number | null;
+  precoUnitario: number | null; // com tributos
+  valor: number | null;
+  pisCofins: number | null;
+  baseIcms: number | null;
+  aliquotaIcms: number | null;
+  icms: number | null;
+  tarifaUnitaria: number | null; // sem tributos
 }
 
 /**
@@ -81,4 +99,10 @@ export interface FaturaEstruturada {
   /** Opcionais (leitor próprio). */
   leituraAnteriorData?: string | null;
   classificacao?: string | null;
+  /** "Código débito em conta" (Elektro). NÃO é a UC — o Admin às vezes guarda este no lugar da UC. */
+  codigoDebitoConta?: string | null;
+  medidor?: Record<string, string | number | null> | null;
+  bandeira?: string | null;
+  /** Layout reconhecido pelo leitor (ex.: "DANFELEKB V1.00"). */
+  layout?: string | null;
 }

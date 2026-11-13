@@ -38,9 +38,11 @@ function mascararDoc(doc: string): string {
 
 export function imprimirLeitura(l: LeituraFatura, titulo: string): void {
   out(`\n=== ${titulo} ===`);
+  out(`  Layout reconhecido: ${l.layout ?? 'nenhum (leitura por rótulos)'}`);
   for (const c of l.cobertura) {
-    const marca = c.valor === null ? (c.obrigatorio ? '✗!' : '✗ ') : '✓ ';
-    out(`  ${marca} ${c.campo.padEnd(24)} ${c.valor === null ? '— não encontrado' : JSON.stringify(c.valor)}${c.origem ? `   [${c.origem}]` : ''}`);
+    const marca = c.valor !== null ? '✓ ' : c.ausenteNaFatura ? '· ' : c.obrigatorio ? '✗!' : '✗ ';
+    const texto = c.valor !== null ? JSON.stringify(c.valor) : c.ausenteNaFatura ? '— não consta nesta fatura' : '— não encontrado';
+    out(`  ${marca} ${c.campo.padEnd(24)} ${texto}${c.origem ? `   [${c.origem}]` : ''}`);
   }
   if (l.verificacoes.length) {
     out('  Verificações:');
@@ -48,7 +50,8 @@ export function imprimirLeitura(l: LeituraFatura, titulo: string): void {
   }
   for (const a of l.alertas) out(`  ALERTA: ${a}`);
   const lidos = l.cobertura.filter((c) => c.valor !== null).length;
-  out(`  Cobertura: ${lidos}/${l.cobertura.length} campos | utilizável para cobrança: ${l.utilizavel ? 'SIM' : 'NÃO'}`);
+  const aplicaveis = l.cobertura.filter((c) => !c.ausenteNaFatura).length;
+  out(`  Cobertura: ${lidos}/${aplicaveis} campos presentes nesta fatura | utilizável para cobrança: ${l.utilizavel ? 'SIM' : 'NÃO'}`);
 }
 
 async function lerPdfESalvar(pdf: Buffer, dir: string, nome: string, ucEsperada?: string): Promise<LeituraFatura> {
@@ -87,9 +90,11 @@ export interface EntradaTesteRobo {
 }
 
 export function lerEntradaTeste(env: NodeJS.ProcessEnv): EntradaTesteRobo {
+  // TESTE_SENHA_B64 é o que o "configurar" grava: base64 só evita problemas de aspas/# na senha (não é criptografia).
+  if (!env.TESTE_SENHA && env.TESTE_SENHA_B64) env.TESTE_SENHA = Buffer.from(env.TESTE_SENHA_B64, 'base64').toString('utf8');
   const faltando = ['TESTE_LOGIN', 'TESTE_SENHA', 'TESTE_UC'].filter((k) => !env[k]);
   if (faltando.length) {
-    throw new Error(`Faltam variáveis no .env.teste-campo: ${faltando.join(', ')}. Veja .env.teste-campo.example.`);
+    throw new Error(`Faltam variáveis no .env.teste-campo: ${faltando.join(', ')}. Rode: npm run teste-campo -- configurar`);
   }
   const tipo = (env.TESTE_TIPO_LOGIN || (apenasDigitos(env.TESTE_LOGIN!).length === 14 ? 'cnpj' : 'cpf')).toLowerCase();
   if (tipo !== 'cpf' && tipo !== 'cnpj') throw new Error('TESTE_TIPO_LOGIN deve ser cpf ou cnpj.');
@@ -181,4 +186,124 @@ export async function testeCampoInfosimples(entrada: EntradaTesteRobo, cliente: 
   }
   out(`\nArquivos em: ${dir}`);
   return { dir, ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// configurar: pergunta os dados da cliente-teste no Terminal (senha mascarada)
+// ---------------------------------------------------------------------------
+/** Sobra de entrada já digitada/colada (várias respostas de uma vez). */
+let pendente = '';
+
+function perguntar(pergunta: string, oculto = false): Promise<string> {
+  return new Promise((resolve) => {
+    process.stdout.write(pergunta);
+    const stdin = process.stdin;
+    const tty = Boolean(stdin.isTTY);
+    let valor = '';
+    let ouvindo = false;
+    const concluir = () => {
+      if (ouvindo) {
+        stdin.off('data', aoDigitar);
+        if (tty) stdin.setRawMode(false);
+        stdin.pause();
+      }
+      process.stdout.write('\n');
+      resolve(valor.trim());
+    };
+    /** Processa caracteres; devolve true quando a resposta terminou (o resto fica em `pendente`). */
+    const consumir = (texto: string): boolean => {
+      for (let i = 0; i < texto.length; i++) {
+        const c = texto[i]!;
+        if (c === '\r' || c === '\n') {
+          // "\r\n" (Enter do Windows) conta como UM fim de linha; "\n\n" são duas respostas.
+          pendente = texto.slice(c === '\r' && texto[i + 1] === '\n' ? i + 2 : i + 1);
+          return true;
+        }
+        if (c === '\u0003') {
+          process.stdout.write('\ncancelado.\n');
+          process.exit(130);
+        }
+        if (c === '\u007f' || c === '\b') {
+          if (valor) {
+            valor = valor.slice(0, -1);
+            if (tty) process.stdout.write('\b \b');
+          }
+          continue;
+        }
+        valor += c;
+        if (tty) process.stdout.write(oculto ? '*' : c);
+      }
+      pendente = '';
+      return false;
+    };
+    const aoDigitar = (pedaco: string) => {
+      if (consumir(pedaco)) concluir();
+    };
+    if (pendente && consumir(pendente)) return concluir();
+    ouvindo = true;
+    if (tty) stdin.setRawMode(true);
+    stdin.setEncoding('utf8');
+    stdin.on('data', aoDigitar);
+    // Entrada acabou (ex.: redirecionada) sem Enter final: usa o que veio.
+    stdin.once('end', () => {
+      if (ouvindo) concluir();
+    });
+    stdin.resume();
+  });
+}
+
+export async function configurarTesteCampo(arquivo: string): Promise<void> {
+  out('Configurar teste de campo — os dados ficam SÓ neste computador, no arquivo:');
+  out(`  ${arquivo}\n`);
+  try {
+    await fs.access(arquivo);
+    const r = await perguntar('Já existe uma configuração. Substituir? (s/N) ');
+    if (!/^s/i.test(r)) {
+      out('Mantida a configuração atual.');
+      return;
+    }
+  } catch {
+    /* não existe: segue */
+  }
+
+  let login = '';
+  while (![11, 14].includes(apenasDigitos(login).length)) {
+    login = await perguntar('CPF ou CNPJ de login da cliente na Agência Virtual: ');
+    if (![11, 14].includes(apenasDigitos(login).length)) out('  -> precisa ter 11 (CPF) ou 14 (CNPJ) dígitos.');
+  }
+  const tipo = apenasDigitos(login).length === 14 ? 'cnpj' : 'cpf';
+  let senha = '';
+  while (!senha) senha = await perguntar('Senha da Agência Virtual (não aparece na tela): ', true);
+  const uf = ((await perguntar('Estado [SP]: ')) || 'SP').toUpperCase();
+  out('\nUC = "Número da Unidade Consumidora", no topo da fatura (ex.: 1.234.567.890-12).');
+  out('NÃO use o "Código débito em conta" (8 dígitos, no canhoto). Pode pôr várias, separadas por vírgula.');
+  let ucs = '';
+  while (!ucs) {
+    ucs = await perguntar('UC(s): ');
+    for (const u of ucs.split(/[,;\s]+/).filter(Boolean)) {
+      for (const a of normalizarUc(u).alertas) out(`  AVISO ${u}: ${a}`);
+      if (apenasDigitos(u).length === 8) out(`  AVISO ${u}: 8 dígitos costuma ser o "código débito em conta", não a UC. Confira na fatura.`);
+    }
+  }
+
+  const conteudo = [
+    '# Gerado por: npm run teste-campo -- configurar',
+    '# CONTÉM A SENHA DA CLIENTE. Não compartilhe; apague após o teste.',
+    `TESTE_LOGIN=${apenasDigitos(login)}`,
+    `TESTE_TIPO_LOGIN=${tipo}`,
+    '# senha em base64 só para não quebrar com aspas ou # (base64 NÃO é criptografia)',
+    `TESTE_SENHA_B64=${Buffer.from(senha, 'utf8').toString('base64')}`,
+    `TESTE_UF=${uf}`,
+    `TESTE_UC=${ucs.split(/[,;\s]+/).filter(Boolean).join(',')}`,
+    'ROBO_HEADLESS=false',
+    'ROBO_ASSISTIDO=true',
+    'ROBO_ESPERA_ASSISTIDO_S=180',
+    'ROBO_CANAL=chrome',
+    'ROBO_TIMEOUT_S=25',
+    '',
+  ].join('\n');
+  await fs.writeFile(arquivo, conteudo, { mode: 0o600 });
+  await fs.chmod(arquivo, 0o600).catch(() => {});
+  out(`\nPronto. Login ${tipo.toUpperCase()} ${mascararDoc(login)}, UF ${uf}, UC(s) ${ucs}.`);
+  out('Agora rode:  npm run teste-campo -- robo');
 }

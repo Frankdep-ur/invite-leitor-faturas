@@ -159,12 +159,12 @@ export async function processarUnidade(
           const jaInvalida = estado?.credencial.situacao === 'dados_invalidos';
           await repo.atualizarSituacaoCredencial(credencial.id, 'dados_invalidos', motivo);
           if (!jaInvalida) {
-            await repo.abrirPendencia({ tipo: 'credencial_invalida', credencialId: credencial.id, unidadeId: unidade.id, code: r.code, mensagem: motivo });
+            await repo.abrirPendencia({ tipo: 'credencial_invalida', credencialId: credencial.id, unidadeId: unidade.id, code: r.code, mensagem: motivo, detalhes: { mensagemOrigem: r.codeMessage } });
           }
         } else {
           const jaInvalida = estado?.unidade.situacao === 'dados_invalidos';
           await repo.atualizarSituacaoUnidade(unidade.id, 'dados_invalidos', motivo);
-          if (!jaInvalida) await repo.abrirPendencia({ tipo: 'unidade_invalida', unidadeId: unidade.id, code: r.code, mensagem: motivo });
+          if (!jaInvalida) await repo.abrirPendencia({ tipo: 'unidade_invalida', unidadeId: unidade.id, code: r.code, mensagem: motivo, detalhes: { mensagemOrigem: r.codeMessage } });
         }
         return { unidadeId: unidade.id, acao: 'invalidada', code: r.code, gasto: gastoUnidade, pararLote: false };
       }
@@ -172,7 +172,7 @@ export async function processarUnidade(
       case 'revisar':
         await repo.atualizarSituacaoUnidade(unidade.id, 'revisar', `Código ${r.code}: ${decisao.descricao}`);
         await repo.reagendarUnidade(unidade.id, reagendarAmanha(agora())); // não repetir hoje
-        await repo.abrirPendencia({ tipo: 'revisao_manual', unidadeId: unidade.id, code: r.code, mensagem: `Código ${r.code}: ${decisao.descricao}` });
+        await repo.abrirPendencia({ tipo: 'revisao_manual', unidadeId: unidade.id, code: r.code, mensagem: `Código ${r.code}: ${decisao.descricao}`, detalhes: { mensagemOrigem: r.codeMessage } });
         return { unidadeId: unidade.id, acao: 'revisar', code: r.code, gasto: gastoUnidade, pararLote: false };
 
       case 'retry': {

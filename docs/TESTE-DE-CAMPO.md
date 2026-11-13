@@ -1,92 +1,147 @@
-# Teste de campo — robô próprio Elektro
+# Teste de campo no MacBook — robô próprio Elektro
 
 Objetivo: rodar o robô **uma vez** com a cliente-teste, no portal de verdade,
-para (1) confirmar o caminho de telas e (2) calibrar o leitor com uma fatura
-real. Nada é gravado em banco; tudo fica numa pasta local.
+e ver se ele entra, acha a UC e baixa a fatura. Nada vai para banco de dados;
+tudo fica numa pasta no seu Mac.
 
-> **Por que no seu computador e não no servidor/nuvem?** O portal da Neoenergia
-> bloqueia acesso vindo de data center (testado: "Access Denied" já na
-> primeira tela). De um computador com internet comum e Chrome normal, o
-> acesso é o mesmo de uma pessoa. O robô **não** usa truques para esconder que
-> é automação: se o portal bloquear, ele para.
+> **Por que no Mac e não na nuvem?** O portal da Neoenergia bloqueia acesso
+> vindo de data center ("Access Denied" já na primeira tela — testado). Do seu
+> Mac, com a sua internet e o Chrome normal, o acesso é igual ao de uma pessoa.
+> O robô não esconde que é automação: se o portal bloquear, ele para.
 
-## Opção A — mais rápida: só a fatura (sem robô)
+---
 
-Mande o **PDF de uma fatura Elektro** (de preferência de cliente com geração
-distribuída/energia injetada) aqui no chat. Eu rodo o leitor e ajusto o que
-faltar. Ou rode você mesmo:
+## Parte 1 — Preparar o Mac (só na primeira vez, ~10 min)
+
+**1.1 Google Chrome** — se ainda não tem, instale (https://www.google.com/chrome).
+
+**1.2 Node.js** — entre em https://nodejs.org, baixe a versão **LTS** (botão
+verde, instalador `.pkg` para macOS) e instale clicando em "Continuar".
+
+**1.3 Abrir o Terminal** — aperte `⌘ + Espaço`, digite **Terminal** e Enter.
+Confira o Node (deve aparecer `v22...` ou `v24...`):
 
 ```bash
-npm run teste-campo -- pdf --arquivo "C:\caminho\fatura.pdf" --uc 12345678
+node -v
 ```
 
-## Opção B — robô completo, no seu computador
+**1.4 Baixar o projeto** — cole e dê Enter (ele vai para a Mesa):
 
-**1. Uma vez só: preparar a máquina**
-
-- Instale o **Node.js 22 LTS** (https://nodejs.org) e o **Google Chrome**.
-- Baixe o projeto (branch `feat/fatureiro`):
+```bash
+cd ~/Desktop
+```
 
 ```bash
 git clone -b feat/fatureiro https://github.com/Frankdep-ur/invite-leitor-faturas.git
 ```
 
+> Se aparecer uma janela pedindo para instalar as "ferramentas de linha de
+> comando", clique **Instalar**, espere terminar e rode o `git clone` de novo.
+
+**1.5 Entrar na pasta e instalar as dependências** (1 a 3 min):
+
 ```bash
-cd invite-leitor-faturas
+cd ~/Desktop/invite-leitor-faturas
 ```
 
 ```bash
 npm install
 ```
 
-**2. Preencher os dados da cliente-teste**
+---
 
-Copie `.env.teste-campo.example` para `.env.teste-campo` e preencha
-`TESTE_LOGIN` (CPF/CNPJ), `TESTE_SENHA`, `TESTE_UF` (SP) e `TESTE_UC`.
-Esse arquivo **não vai para o GitHub**. Não mande a senha por chat.
+## Parte 2 — Colocar login e senha da cliente (~1 min)
 
-**3. Rodar**
+```bash
+npm run teste-campo -- configurar
+```
+
+Ele pergunta, uma coisa de cada vez:
+
+| Pergunta | O que digitar |
+|---|---|
+| CPF ou CNPJ de login | o CPF/CNPJ que a cliente usa na Agência Virtual |
+| Senha | a senha da Agência Virtual — **não aparece na tela** (só `****`), é normal |
+| Estado [SP] | só Enter (SP) |
+| UC(s) | o **"Número da Unidade Consumidora"**, no topo da fatura (ex.: `1.234.567.890-12`) |
+
+**Atenção à UC:** use o número do quadro verde **"NÚMERO DA UNIDADE
+CONSUMIDORA"**. Não use o **"Código débito em conta"** (8 dígitos, perto do
+canhoto) — o Admin da Invite guarda esse no lugar da UC em vários clientes.
+Pode colocar mais de uma UC separando por vírgula.
+
+Os dados ficam só no arquivo `.env.teste-campo`, no seu Mac, com permissão
+só do seu usuário. Esse arquivo **não vai para o GitHub**. Não mande a senha
+por chat ou e-mail.
+
+---
+
+## Parte 3 — Rodar o robô
 
 ```bash
 npm run teste-campo -- robo
 ```
 
-O Chrome abre e você vê o robô trabalhando. Se aparecer no terminal
-`>>> AÇÃO MANUAL: ...` (captcha, ou uma tela que ele não conhece), faça o que
-ele pede na janela — ele espera até 3 minutos e continua sozinho. Se você
-mesmo clicar para baixar a fatura, ele captura o PDF do mesmo jeito.
+- Abre uma janela do **Chrome** com a faixa *"O Chrome está sendo controlado
+  por um software de teste automatizado"* — é normal: é o robô.
+- **Não feche essa janela** e não mexa nela, a não ser que o Terminal peça.
+- Se aparecer no Terminal `>>> AÇÃO MANUAL: ...` (captcha, ou uma tela que o
+  robô não conhece), faça na janela do Chrome o que ele pede. Ele espera até
+  3 minutos e continua sozinho. Se você mesmo clicar para baixar a fatura, ele
+  pega o PDF do mesmo jeito.
+- Se a senha for recusada, ele **para e não tenta de novo** (para não
+  bloquear a conta da cliente).
 
-**4. Resultado**
+## Parte 4 — Ler o resultado
 
-No fim aparece, para cada UC, a lista de campos lidos (✓) e não lidos (✗) e as
-verificações (UC confere, valor = código de barras, datas coerentes). Tudo fica
-em `dados/teste-campo/<data-hora>/`:
+No fim, o Terminal mostra para cada UC:
 
-| Arquivo | O que é |
-|---|---|
-| `uc-NNN.pdf` | a fatura baixada |
-| `uc-NNN.texto.txt` | o texto que o leitor enxerga (calibração do leitor) |
-| `uc-NNN.relatorio.json` | campos, de onde vieram, verificações |
-| `rastreio/NN-etapa.png/.json` | print e mapa de cada tela, **sem senha** (calibração do robô) |
-| `rastreio/rede.json` | rotas acessadas, sem conteúdo e com números mascarados |
-| `resumo.json` | o que deu certo/errado por UC |
+- `Login OK.` e `PDF capturado` → o robô entrou e baixou a fatura;
+- a lista de campos lidos (✓), não lidos (✗) e os que não constam na fatura (·);
+- as verificações (UC confere, valor e vencimento = boleto, nota = chave, consumo = medidor).
 
-**5. Me devolver**
+Os arquivos ficam em `dados/teste-campo/<data-hora>/`. Para abrir no Finder:
 
-Cole aqui no chat a saída do terminal. Se algo falhou, mande também a pasta
-`rastreio` (ela tem prints com dados da cliente: use um canal seguro e apague
-depois). Com isso eu travo os seletores e os padrões do leitor.
+```bash
+open dados/teste-campo
+```
 
-## Opção C — eu rodo no seu computador
+## Parte 5 — Me mandar
 
-Se o seu computador estiver ligado ao Claude pelo app desktop (Configurações →
-Claude Code → Remote Control, adicionando a pasta do projeto), eu posso pedir
-acesso à pasta e rodar o teste daqui, lendo o rastreio direto. Esse recurso
-ainda não está disponível para todas as contas; se não aparecer, use a opção B.
+1. No Terminal: menu **Editar → Selecionar Tudo**, `⌘ + C`, e cole aqui no chat.
+2. Se algo falhou, comprima a pasta `rastreio` (no Finder: botão direito →
+   **Comprimir**) e anexe aqui. Ela tem prints das telas, que mostram dados da
+   cliente (mas **não** a senha).
+
+Com isso eu ajusto o robô e você só atualiza o projeto e roda de novo:
+
+```bash
+git pull
+```
+
+## Parte 6 — Limpar depois do teste
+
+```bash
+rm -rf dados/teste-campo .env.teste-campo
+```
+
+---
+
+## Outras formas
+
+- **Só testar uma fatura em PDF** (sem robô):
+  `npm run teste-campo -- pdf --arquivo ~/Downloads/fatura.pdf --uc 1.234.567.890-12`
+  — ou mande o PDF aqui no chat.
+- **Eu rodar no seu Mac:** se o seu Mac estiver ligado ao Claude pelo app
+  desktop (Configurações → Claude Code → Remote Control, adicionando a pasta
+  `invite-leitor-faturas`), eu consigo pedir acesso à pasta e rodar daqui.
+  Ainda não está disponível para todas as contas; se não aparecer, siga as
+  partes acima. Mesmo nesse caso, rode você o `configurar` (Parte 2), para a
+  senha nunca passar pelo chat.
 
 ## Segurança
 
-- Uma tentativa de login por execução. Se o portal recusar a senha, o robô
-  **não tenta de novo** (para não bloquear a conta da cliente).
-- Senha só no `.env.teste-campo` local; nunca em log, print de mapa ou rede.
-- Apague `dados/teste-campo/` depois da calibração.
+- Uma tentativa de login por execução; senha recusada = para.
+- A senha fica só no `.env.teste-campo` (base64 apenas para não quebrar com
+  caracteres especiais — **não** é criptografia: proteja o arquivo e apague-o).
+- Rastreio grava telas **sem** o que foi digitado e rede **sem** conteúdo.

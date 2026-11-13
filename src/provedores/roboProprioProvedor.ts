@@ -150,7 +150,16 @@ export class RoboProprioProvedor implements Provedor {
     try {
       const { texto } = await extrairTextoPdf(r.pdf);
       const leitura = lerFaturaNeoenergia(texto, { ucEsperada: unidade.uc });
-      const extra = { cobertura: leitura.cobertura, verificacoes: leitura.verificacoes, alertas: leitura.alertas, origemPdf: r.origemPdf };
+      const extra = {
+        layout: leitura.layout,
+        cobertura: leitura.cobertura,
+        verificacoes: leitura.verificacoes,
+        alertas: leitura.alertas,
+        origemPdf: r.origemPdf,
+        codigoDebitoConta: leitura.fatura.codigoDebitoConta ?? null,
+        medidor: leitura.fatura.medidor ?? null,
+        bandeira: leitura.fatura.bandeira ?? null,
+      };
       if (!leitura.utilizavel) {
         return this.registrar({ resultado: this.resultado(611, 'PDF baixado, mas faltam campos mínimos (UC, mês ou valor).', inicio, extra), fatura: null, pdf: r.pdf });
       }

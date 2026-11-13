@@ -422,7 +422,8 @@ export class RoboNeoenergia {
       const ok = await this.esperarPessoa(`selecione a UC ${digitos} na janela`, async () => textoUc().isVisible());
       if (!ok) {
         await this.rastreio.etapa(p, 'uc_nao_encontrada');
-        return this.falha('uc_nao_encontrada', `UC ${digitos} não aparece para este login.`, 'uc');
+        const dica = digitos.length === 8 ? ' (8 dígitos costuma ser o "código débito em conta", não a UC: confira na fatura)' : '';
+        return this.falha('uc_nao_encontrada', `UC ${digitos} não aparece para este login${dica}.`, 'uc');
       }
     }
     await this.rastreio.etapa(p, 'uc_selecionada');

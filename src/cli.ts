@@ -8,13 +8,14 @@ import { Cofre, hashLogin } from './cofre.js';
 import { normalizarUc, apenasDigitos } from './nucleo/uc.js';
 import { criarLogger } from './log.js';
 import { ClienteInfosimples } from './infosimples/cliente.js';
-import { lerEntradaTeste, testeCampoInfosimples, testeCampoPdf, testeCampoRobo } from './testeCampo.js';
+import { configurarTesteCampo, lerEntradaTeste, testeCampoInfosimples, testeCampoPdf, testeCampoRobo } from './testeCampo.js';
 import type { Distribuidora, TipoLogin } from './dominio.js';
 
 /**
  * CLI do Fatureiro.
  *   migrar                                  aplica as migrations do schema
  *   teste-campo pdf --arquivo X.pdf [--uc N] lê uma fatura com o leitor próprio (sem rede, sem banco)
+ *   teste-campo configurar                  pergunta login/senha/UC da cliente-teste (senha oculta)
  *   teste-campo robo                        robô + leitor no portal real (lê .env.teste-campo)
  *   teste-campo infosimples                 1 consulta paga + compara com o leitor próprio
  *   cadastrar-credencial / cadastrar-unidade
@@ -72,7 +73,9 @@ async function migrar(databaseUrl: string): Promise<void> {
 
 async function testeCampo(): Promise<void> {
   const sub = process.argv[3];
-  carregarEnv(arg('env', path.join(raiz, '.env.teste-campo')));
+  const arquivoEnv = arg('env', path.join(raiz, '.env.teste-campo'))!;
+  if (sub === 'configurar') return configurarTesteCampo(arquivoEnv);
+  carregarEnv(arquivoEnv);
   process.env.DATABASE_URL ||= 'postgres://nao-usado-no-teste-de-campo';
   // No teste de campo o padrão é janela visível + modo assistido (dá para você ver e ajudar).
   process.env.ROBO_HEADLESS ||= 'false';
@@ -98,7 +101,7 @@ async function testeCampo(): Promise<void> {
     });
     r = await testeCampoInfosimples(lerEntradaTeste(process.env), cliente, base);
   } else {
-    throw new Error('Uso: teste-campo pdf --arquivo X.pdf [--uc N] | teste-campo robo | teste-campo infosimples');
+    throw new Error('Uso: teste-campo configurar | teste-campo robo | teste-campo pdf --arquivo X.pdf [--uc N] | teste-campo infosimples');
   }
   process.exitCode = r.ok ? 0 : 3;
 }
