@@ -20,7 +20,7 @@ tudo fica numa pasta no seu Mac.
 verde, instalador `.pkg` para macOS) e instale clicando em "Continuar".
 
 **1.3 Abrir o Terminal** — aperte `⌘ + Espaço`, digite **Terminal** e Enter.
-Confira o Node (deve aparecer `v22...` ou `v24...`):
+Confira o Node (qualquer `v22` ou mais nova serve; hoje o LTS é `v26`):
 
 ```bash
 node -v
@@ -48,6 +48,9 @@ cd ~/Desktop/invite-leitor-faturas
 ```bash
 npm install
 ```
+
+> Pode aparecer um aviso amarelo `npm warn install-scripts ... esbuild`. É
+> normal nas versões novas do npm e **pode ignorar**: tudo funciona sem ele.
 
 ---
 
