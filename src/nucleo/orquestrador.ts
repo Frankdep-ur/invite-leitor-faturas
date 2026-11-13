@@ -10,6 +10,7 @@ import { mesIguais } from './mesReferencia.js';
 import { baixarPdf } from './pdf.js';
 
 export type AcaoFinal =
+  | 'ignorada'
   | 'gravada'
   | 'duplicada'
   | 'retry_esgotado'
@@ -73,6 +74,15 @@ export async function processarUnidade(
   const backoffBase = deps.backoffBaseMs ?? 2000;
   const { unidade, credencial } = ctx;
   const servico = provedor.servicoDe(credencial.distribuidora);
+
+  // A lista do lote é montada no início; a credencial/unidade pode ter sido
+  // invalidada no meio (ex.: login recusado na UC anterior do mesmo cliente).
+  // Nesse caso não tocamos mais na conta.
+  const atual = await repo.buscarUnidadeComContexto(unidade.id);
+  if (atual && (atual.credencial.situacao !== 'ativa' || atual.unidade.situacao !== 'ativa')) {
+    logger.info('unidade ignorada: credencial ou unidade não está mais ativa', { unidadeId: unidade.id });
+    return { unidadeId: unidade.id, acao: 'ignorada', code: null, gasto: 0, pararLote: false };
+  }
 
   const segredos = {
     login: cofre.decifrar(credencial.loginCifrado),
@@ -143,12 +153,18 @@ export async function processarUnidade(
       case 'invalidar': {
         const alvo = alvoInvalidacao(r.code);
         const motivo = `Código ${r.code}: ${decisao.descricao}`;
+        // Idempotente: com workers em paralelo, duas UCs do mesmo cliente podem chegar aqui; uma pendência só.
+        const estado = await repo.buscarUnidadeComContexto(unidade.id);
         if (alvo === 'credencial') {
+          const jaInvalida = estado?.credencial.situacao === 'dados_invalidos';
           await repo.atualizarSituacaoCredencial(credencial.id, 'dados_invalidos', motivo);
-          await repo.abrirPendencia({ tipo: 'credencial_invalida', credencialId: credencial.id, unidadeId: unidade.id, code: r.code, mensagem: motivo });
+          if (!jaInvalida) {
+            await repo.abrirPendencia({ tipo: 'credencial_invalida', credencialId: credencial.id, unidadeId: unidade.id, code: r.code, mensagem: motivo });
+          }
         } else {
+          const jaInvalida = estado?.unidade.situacao === 'dados_invalidos';
           await repo.atualizarSituacaoUnidade(unidade.id, 'dados_invalidos', motivo);
-          await repo.abrirPendencia({ tipo: 'unidade_invalida', unidadeId: unidade.id, code: r.code, mensagem: motivo });
+          if (!jaInvalida) await repo.abrirPendencia({ tipo: 'unidade_invalida', unidadeId: unidade.id, code: r.code, mensagem: motivo });
         }
         return { unidadeId: unidade.id, acao: 'invalidada', code: r.code, gasto: gastoUnidade, pararLote: false };
       }
@@ -210,16 +226,17 @@ async function tratarSucesso(
     return { unidadeId: unidade.id, acao: 'duplicada', code: 200, gasto: gastoUnidade, mesReferencia: fatura.mesReferencia, pararLote: false };
   }
 
-  // Baixa o PDF agora (site_receipts expira em 7 dias). Falha no PDF não impede gravar.
+  // Guarda o PDF agora: o robô já entrega os bytes; da Infosimples baixamos do
+  // site_receipt (expira em 7 dias). Falha no PDF não impede gravar a fatura.
   let pdfChave: string | null = null;
   let pdfSha: string | null = null;
   let pdfEm: Date | null = null;
   const url = saida.resultado.siteReceipts[0] ?? fatura.siteReceipt;
-  if (url) {
+  if (saida.pdf || url) {
     try {
-      const pdf = await baixar(url);
+      const bytes = saida.pdf ?? (await baixar(url!)).bytes;
       const chaveSugerida = `${ctx.credencial.distribuidora}/${fatura.uc}/${fatura.mesReferencia}.pdf`;
-      const salvo = await deps.armazenamento.salvar(chaveSugerida, pdf.bytes);
+      const salvo = await deps.armazenamento.salvar(chaveSugerida, bytes);
       pdfChave = salvo.chave;
       pdfSha = salvo.sha256;
       pdfEm = agora();

@@ -42,6 +42,8 @@ export async function executarLote(opts: OpcoesLote): Promise<ResumoLote> {
 
   const loteId = await repo.criarLote(false);
   const unidades = await repo.listarUnidadesParaConsultar(opts.limite, agora());
+  // Agrupa por credencial: o robô faz UM login e baixa todas as UCs daquele cliente em sequência.
+  unidades.sort((a, b) => a.credencial.id.localeCompare(b.credencial.id));
   logger.info('lote iniciado', { loteId, elegiveis: unidades.length, teto: gasto.teto_, gastoAtual: gasto.gasto });
 
   const resumo: ResumoLote = {
@@ -79,7 +81,11 @@ export async function executarLote(opts: OpcoesLote): Promise<ResumoLote> {
   }
 
   const n = Math.max(1, Math.min(opts.concorrencia, fila.length || 1));
-  await Promise.all(Array.from({ length: n }, () => worker()));
+  try {
+    await Promise.all(Array.from({ length: n }, () => worker()));
+  } finally {
+    await (deps as DepsOrquestrador).provedor.fechar?.().catch((e: Error) => logger.warn('erro ao fechar provedor', { erro: e.message }));
+  }
 
   await repo.finalizarLote(loteId, {
     total: resumo.total, gravadas: resumo.gravadas, duplicadas: resumo.duplicadas,

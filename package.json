@@ -13,12 +13,15 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "fatureiro": "tsx src/cli.ts",
-    "migrar": "tsx src/cli.ts migrar"
+    "migrar": "tsx src/cli.ts migrar",
+    "teste-campo": "tsx src/cli.ts teste-campo"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1167.0",
     "aes-bridge": "^2.1.0",
+    "pdfjs-dist": "^6.5.438",
     "pg": "^8.23.1",
+    "playwright": "1.63.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {

@@ -1,8 +1,12 @@
 # Fatureiro — Guia de Operação (1 página)
 
-Módulo que captura, todo mês, a fatura mais recente de cada unidade consumidora
-dos clientes (Neoenergia/Elektro e CPFL) pela **API paga da Infosimples**, grava
-a fatura estruturada + PDF e controla erros, custo e pendências.
+Módulo que captura, todo mês, a fatura de cada unidade consumidora dos
+clientes: **Neoenergia/Elektro pelo robô próprio** (login do cliente + leitor de
+PDF nosso) e CPFL pela Infosimples. Grava a fatura estruturada + PDF e controla
+erros, custo e pendências.
+
+**Onde rodar o robô:** numa máquina da Invite com internet comum (o portal
+bloqueia data center). Primeira vez: siga `docs/TESTE-DE-CAMPO.md`.
 
 ## 1. Variáveis de ambiente (ver `.env.example`)
 
@@ -65,6 +69,11 @@ Tipos e o que fazer:
 | `falhas_repetidas` | Transitórios estouraram o limite do dia. | Em geral reagenda sozinho; vigiar se persistir. |
 | `sem_fatura` | Ciclo esgotou tentativas sem fatura nova. | Verificar se a conta já foi emitida. |
 | `teto_atingido` / `lote_interrompido` | Gasto no teto ou código de token/limite (601/602/603/617/622). | **Atenção imediata**: checar token/saldo. |
+| `lote_interrompido` com 901 | Robô: o portal bloqueou o acesso. | Não insistir. Conferir se a máquina está em rede comum; rodar no dia seguinte. |
+| `lote_interrompido` com 905 | Robô: 3 telas inesperadas seguidas (layout do portal mudou). | Rodar `teste-campo robo` com rastreio e recalibrar `src/robo/seletores.ts`. |
+| `revisao_manual` com 902 / 903 | Robô: captcha / uma tela diferente para aquela UC. | Rodar com `ROBO_HEADLESS=false ROBO_ASSISTIDO=true` e acompanhar. |
+| `revisao_manual` com 611 | PDF baixado, mas o leitor não achou UC, mês ou valor. | `teste-campo pdf` no PDF guardado e ajustar `src/leitor/faturaNeoenergia.ts`. |
+| `revisao_manual` com 906 | Distribuidora sem provedor configurado. | Configurar `FATUREIRO_PROVEDOR_*`. |
 
 Resolver uma pendência (manual):
 ```sql

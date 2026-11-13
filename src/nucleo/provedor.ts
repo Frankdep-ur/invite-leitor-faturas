@@ -10,6 +10,8 @@ export interface SaidaProvedor {
   resultado: ResultadoConsulta;
   /** Fatura normalizada quando code=200 e `data` tinha conteúdo; senão null. */
   fatura: FaturaEstruturada | null;
+  /** PDF já em mãos (robô próprio). Quando presente, o orquestrador não baixa de URL. */
+  pdf?: Buffer;
   /** Credenciais em claro NUNCA aparecem aqui. */
 }
 
@@ -19,4 +21,6 @@ export interface Provedor {
   servicoDe(distribuidora: Distribuidora): string;
   /** Faz UMA consulta para a unidade. Recebe login/senha já decifrados. */
   consultar(ctx: UnidadeComContexto, segredos: { login: string; senha: string }): Promise<SaidaProvedor>;
+  /** Libera recursos (navegadores abertos etc.) ao fim do lote. */
+  fechar?(): Promise<void>;
 }

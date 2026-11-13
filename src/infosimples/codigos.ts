@@ -53,6 +53,16 @@ export const REGRAS: Record<number, RegraCodigo> = {
   603: { code: 603, cobravel: false, acao: 'parar_lote', descricao: 'Token sem autorização ou com limite de uso.' },
   617: { code: 617, cobravel: false, acao: 'parar_lote', descricao: 'Infraestrutura do serviço sobrecarregada.' },
   622: { code: 622, cobravel: false, acao: 'parar_lote', descricao: 'Mesma consulta repetida com muita frequência.' },
+
+  // ---- Códigos INTERNOS do robô próprio (900+). Nunca vêm da Infosimples. ----
+  // Os desfechos comuns reaproveitam códigos acima: login recusado -> 608,
+  // UC não encontrada -> 607, sem fatura -> 612, PDF ilegível -> 611.
+  901: { code: 901, cobravel: false, acao: 'parar_lote', descricao: 'Robô: portal bloqueou o acesso (CDN). Não insistir.' },
+  902: { code: 902, cobravel: false, acao: 'revisar', descricao: 'Robô: captcha exige uma pessoa (rodar no modo assistido).' },
+  903: { code: 903, cobravel: false, acao: 'revisar', descricao: 'Robô: tela diferente do esperado (calibrar seletores).' },
+  904: { code: 904, cobravel: false, acao: 'retry', descricao: 'Robô: falha de rede/navegador.' },
+  905: { code: 905, cobravel: false, acao: 'parar_lote', descricao: 'Robô: falhas de tela em sequência (layout do portal mudou).' },
+  906: { code: 906, cobravel: false, acao: 'revisar', descricao: 'Sem provedor configurado para esta distribuidora.' },
 };
 
 /** Decisão para um código. Códigos desconhecidos caem em "revisar" (seguro: não repete e não invalida). */

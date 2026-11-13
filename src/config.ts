@@ -44,6 +44,21 @@ const EsquemaEnv = z.object({
 
   ALERTA_WEBHOOK_URL: z.string().optional().default(''),
   LOG_NIVEL: z.enum(['debug', 'info', 'warn', 'error']).optional().default('info'),
+
+  // Provedor por distribuidora
+  FATUREIRO_PROVEDOR_NEOENERGIA: z.enum(['robo', 'infosimples', 'nenhum']).optional().default('robo'),
+  FATUREIRO_PROVEDOR_CPFL: z.enum(['infosimples', 'nenhum', 'auto']).optional().default('auto'),
+
+  // Robô próprio
+  ROBO_BASE_URL: z.string().optional().default('https://agenciavirtual.neoenergia.com'),
+  ROBO_HEADLESS: bool(true),
+  ROBO_CANAL: z.string().optional().default(''),
+  ROBO_ASSISTIDO: bool(false),
+  ROBO_ESPERA_ASSISTIDO_S: num(180).pipe(z.number().min(10).max(3600)),
+  ROBO_TIMEOUT_S: num(20).pipe(z.number().min(5).max(300)),
+  ROBO_RASTREIO_DIR: z.string().optional().default(''),
+  ROBO_PAUSA_ENTRE_CLIENTES_S: num(5).pipe(z.number().min(0).max(600)),
+  ROBO_PAUSA_ENTRE_UCS_S: num(1.5).pipe(z.number().min(0).max(600)),
 });
 
 export type Config = {
@@ -73,6 +88,21 @@ export type Config = {
   };
   alertaWebhookUrl: string;
   logNivel: 'debug' | 'info' | 'warn' | 'error';
+  provedores: {
+    neoenergia: 'robo' | 'infosimples' | 'nenhum';
+    cpfl: 'infosimples' | 'nenhum' | 'auto';
+  };
+  robo: {
+    baseUrl: string;
+    headless: boolean;
+    canal: string;
+    assistido: boolean;
+    esperaAssistidoS: number;
+    timeoutS: number;
+    rastreioDir: string;
+    pausaEntreClientesS: number;
+    pausaEntreUcsS: number;
+  };
 };
 
 export function carregarConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -115,5 +145,20 @@ export function carregarConfig(env: NodeJS.ProcessEnv = process.env): Config {
     },
     alertaWebhookUrl: e.ALERTA_WEBHOOK_URL,
     logNivel: e.LOG_NIVEL,
+    provedores: {
+      neoenergia: e.FATUREIRO_PROVEDOR_NEOENERGIA,
+      cpfl: e.FATUREIRO_PROVEDOR_CPFL,
+    },
+    robo: {
+      baseUrl: e.ROBO_BASE_URL,
+      headless: e.ROBO_HEADLESS,
+      canal: e.ROBO_CANAL,
+      assistido: e.ROBO_ASSISTIDO,
+      esperaAssistidoS: e.ROBO_ESPERA_ASSISTIDO_S,
+      timeoutS: e.ROBO_TIMEOUT_S,
+      rastreioDir: e.ROBO_RASTREIO_DIR,
+      pausaEntreClientesS: e.ROBO_PAUSA_ENTRE_CLIENTES_S,
+      pausaEntreUcsS: e.ROBO_PAUSA_ENTRE_UCS_S,
+    },
   };
 }

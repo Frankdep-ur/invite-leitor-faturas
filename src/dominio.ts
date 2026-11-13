@@ -46,9 +46,12 @@ export interface UnidadeComContexto {
 }
 
 export interface TributosFatura {
+  /** Alíquotas em % (ex.: 18 para 18%). */
   pis?: number | null;
   cofins?: number | null;
   icms?: number | null;
+  /** Valor do ICMS em R$, quando a fatura informa. */
+  icmsValor?: number | null;
 }
 
 /**
@@ -75,4 +78,7 @@ export interface FaturaEstruturada {
   itens: unknown[] | null;
   historicoConsumo: unknown[] | null;
   siteReceipt: string | null;
+  /** Opcionais (leitor próprio). */
+  leituraAnteriorData?: string | null;
+  classificacao?: string | null;
 }

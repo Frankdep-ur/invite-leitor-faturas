@@ -15,6 +15,8 @@ export function paraNumero(v: unknown): number | null {
   // Se tem vírgula e ponto, a vírgula é decimal (padrão BR): remove pontos de milhar.
   if (s.includes(',') && s.includes('.')) s = s.replace(/\./g, '').replace(',', '.');
   else if (s.includes(',')) s = s.replace(',', '.');
+  // Só ponto, em grupos de exatamente 3 dígitos ("1.020", "12.345.678"): milhar BR.
+  else if (/^-?\d{1,3}(?:\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
   const n = Number(s);
   return Number.isFinite(n) ? n : null;
 }
