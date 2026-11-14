@@ -5,7 +5,7 @@ import { lerFaturaNeoenergia, type LeituraFatura } from './leitor/faturaNeoenerg
 import { RoboNeoenergia, type OpcoesRobo } from './robo/neoenergia.js';
 import { ClienteInfosimples } from './infosimples/cliente.js';
 import { normalizar } from './infosimples/normalizar.js';
-import { normalizarUc, apenasDigitos } from './nucleo/uc.js';
+import { normalizarUc, apenasDigitos, pareceCodigoDebitoElektro } from './nucleo/uc.js';
 
 /**
  * TESTE DE CAMPO — valida o robô e o leitor contra o portal e faturas REAIS,
@@ -69,6 +69,28 @@ async function novaPasta(base: string): Promise<string> {
   return dir;
 }
 
+/** Mostra no Terminal o que o robô viu na tela (dígitos viram 9), para calibrar pelos prints do Terminal. */
+export function imprimirMapaDaTela(mapa: Record<string, unknown> | null): void {
+  if (!mapa) return;
+  const mascarar = (v: unknown) => String(v ?? '').replace(/\d/g, '9');
+  const lista = (v: unknown) => (Array.isArray(v) ? v : []);
+  out('\n--- O QUE O ROBÔ VIU NA TELA (números trocados por 9) ---');
+  out(`  endereço: ${mascarar(mapa.rota)} | título: "${mascarar(mapa.titulo)}" | diálogo aberto: ${mapa.dialogoAberto ? 'sim' : 'não'}`);
+  const campos = lista(mapa.campos) as Array<Record<string, unknown>>;
+  out(`  campos (${campos.length}):`);
+  for (const c of campos.slice(0, 12)) {
+    const attrs = ['id', 'name', 'type', 'formcontrolname', 'placeholder', 'rotulo'].filter((k) => c[k]).map((k) => `${k}=${mascarar(c[k])}`).join(' ');
+    out(`    <${c.tag}${c.noDialogo ? ' (no diálogo)' : ''}> ${attrs}`);
+  }
+  out(`  botões e links: ${lista(mapa.botoes).slice(0, 40).map((b) => `"${mascarar(b)}"`).join(' · ') || '(nenhum)'}`);
+  if (lista(mapa.classesBotoes).length) out(`  classes dos botões: ${lista(mapa.classesBotoes).slice(0, 12).join(' | ')}`);
+  if (lista(mapa.titulos).length) out(`  títulos: ${lista(mapa.titulos).map((t) => `"${mascarar(t)}"`).join(' · ')}`);
+  if (lista(mapa.mensagens).length) out(`  mensagens: ${lista(mapa.mensagens).map((t) => `"${mascarar(t)}"`).join(' · ')}`);
+  if (lista(mapa.iframes).filter(Boolean).length) out(`  iframes: ${lista(mapa.iframes).filter(Boolean).join(' | ')}`);
+  out(`  texto: ${String(mapa.texto ?? '').slice(0, 500)}`);
+  out('--- fim (mande um print desta parte para calibrar o robô) ---');
+}
+
 // ---------------------------------------------------------------------------
 export async function testeCampoPdf(arquivo: string, uc: string | undefined, baseDados: string): Promise<SaidaTeste> {
   const dir = await novaPasta(baseDados);
@@ -119,6 +141,7 @@ export async function testeCampoRobo(entrada: EntradaTesteRobo, opcoes: OpcoesRo
     const falha = await robo.login({ tipo: entrada.tipoLogin, documento: entrada.login, senha: entrada.senha, uf: entrada.uf });
     if (falha) {
       out(`\nLOGIN NÃO CONCLUÍDO: ${falha.status} — ${falha.detalhe}`);
+      if (falha.status !== 'login_recusado') imprimirMapaDaTela(await robo.mapaDaTela());
       resumo.push({ fase: 'login', status: falha.status, detalhe: falha.detalhe, etapa: falha.etapa });
       ok = false;
     } else {
@@ -127,6 +150,7 @@ export async function testeCampoRobo(entrada: EntradaTesteRobo, opcoes: OpcoesRo
         const r = await robo.baixarFatura(uc);
         if (r.status !== 'ok' || !r.pdf) {
           out(`\nUC ${uc}: ${r.status} — ${r.detalhe}`);
+          imprimirMapaDaTela(await robo.mapaDaTela());
           resumo.push({ uc, status: r.status, detalhe: r.detalhe, etapa: r.etapa });
           ok = false;
           continue;
@@ -275,14 +299,14 @@ export async function configurarTesteCampo(arquivo: string): Promise<void> {
   let senha = '';
   while (!senha) senha = await perguntar('Senha da Agência Virtual (não aparece na tela): ', true);
   const uf = ((await perguntar('Estado [SP]: ')) || 'SP').toUpperCase();
-  out('\nUC = "Número da Unidade Consumidora", no topo da fatura (ex.: 1.234.567.890-12).');
-  out('NÃO use o "Código débito em conta" (8 dígitos, no canhoto). Pode pôr várias, separadas por vírgula.');
+  out('\nUC = "Número da Unidade Consumidora", no topo da fatura (ex.: 1.234.567.890-12 ou 123.456.789-01).');
+  out('NÃO use o "Código débito em conta" (7 ou 8 dígitos, no canhoto). Pode pôr várias, separadas por vírgula.');
   let ucs = '';
   while (!ucs) {
     ucs = await perguntar('UC(s): ');
     for (const u of ucs.split(/[,;\s]+/).filter(Boolean)) {
       for (const a of normalizarUc(u).alertas) out(`  AVISO ${u}: ${a}`);
-      if (apenasDigitos(u).length === 8) out(`  AVISO ${u}: 8 dígitos costuma ser o "código débito em conta", não a UC. Confira na fatura.`);
+      if (pareceCodigoDebitoElektro(u)) out(`  AVISO ${u}: 7 ou 8 dígitos é o formato do "código débito em conta", não da UC (11 ou 12 dígitos). Confira na fatura.`);
     }
   }
 

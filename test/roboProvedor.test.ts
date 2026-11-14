@@ -8,7 +8,7 @@ import { executarLote } from '../src/nucleo/lote.js';
 import { RoboProprioProvedor } from '../src/provedores/roboProprioProvedor.js';
 import { ProvedorRoteado } from '../src/provedores/roteado.js';
 import { RoboNeoenergia } from '../src/robo/neoenergia.js';
-import { normalizarUc } from '../src/nucleo/uc.js';
+import { normalizarUc, pareceCodigoDebitoElektro } from '../src/nucleo/uc.js';
 import { logSilencioso } from '../src/log.js';
 import { ArmazenamentoFake, dormirFake } from './apoio.js';
 import { htmlFatura, MOCK_PADRAO } from './faturaMock.js';
@@ -107,10 +107,16 @@ describe('normalizarUc', () => {
     expect(normalizarUc('1.234.567.890-12').digitos).toBe('123456789012');
     expect(normalizarUc('12345678').aceitavel).toBe(true);
   });
-  it('acusa CPF digitado na coluna UC', () => {
-    const n = normalizarUc('529.982.247-25'); // CPF válido de exemplo
-    expect(n.aceitavel).toBe(false);
-    expect(n.alertas.join(' ')).toMatch(/CPF/);
+  it('aceita UC de 11 dígitos em formato parecido com CPF (formato real da Elektro)', () => {
+    const n = normalizarUc('529.982.247-25');
+    expect(n.aceitavel).toBe(true);
+    expect(n.digitos).toBe('52998224725');
+    expect(n.alertas).toEqual([]);
+  });
+  it('reconhece o formato do "código débito em conta" (7 ou 8 dígitos)', () => {
+    expect(pareceCodigoDebitoElektro('1234567')).toBe(true);
+    expect(pareceCodigoDebitoElektro('12345678')).toBe(true);
+    expect(pareceCodigoDebitoElektro('123.456.789-01')).toBe(false);
   });
   it('acusa vazio e tamanho fora do esperado', () => {
     expect(normalizarUc('').aceitavel).toBe(false);

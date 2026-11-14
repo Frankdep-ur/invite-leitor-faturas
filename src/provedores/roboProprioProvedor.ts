@@ -48,6 +48,8 @@ export class RoboProprioProvedor implements Provedor {
   private sessao: { credencialId: string; robo: RoboNeoenergia } | null = null;
   private fila: Promise<unknown> = Promise.resolve();
   private readonly recusadas = new Set<string>();
+  /** Credenciais cujo login foi ENVIADO e ficou sem desfecho: não reenviar no mesmo lote. */
+  private readonly semDesfecho = new Set<string>();
   private bloqueado = false;
   private layoutSeguidos = 0;
   private readonly log: Logger;
@@ -105,6 +107,9 @@ export class RoboProprioProvedor implements Provedor {
     if (this.recusadas.has(credencial.id)) {
       return { resultado: this.resultado(608, 'Login deste cliente já foi recusado neste lote; não tentar de novo.', inicio), fatura: null };
     }
+    if (this.semDesfecho.has(credencial.id)) {
+      return this.registrar({ resultado: this.resultado(903, 'Login deste cliente já foi enviado neste lote e ficou sem confirmação; não reenviar a senha.', inicio), fatura: null });
+    }
 
     // Sessão: reaproveita se for o mesmo cliente; senão fecha a anterior e loga.
     if (this.sessao?.credencialId !== credencial.id) {
@@ -129,6 +134,8 @@ export class RoboProprioProvedor implements Provedor {
       if (falha) {
         await robo.fechar();
         if (falha.status === 'login_recusado') this.recusadas.add(credencial.id);
+        // Senha já foi enviada (captcha/desfecho indefinido): cada reenvio conta como tentativa na conta do cliente.
+        else if (falha.etapa === 'login_desfecho' || falha.etapa === 'login_captcha') this.semDesfecho.add(credencial.id);
         return this.registrar(this.deRobo(falha, inicio));
       }
       this.sessao = { credencialId: credencial.id, robo };

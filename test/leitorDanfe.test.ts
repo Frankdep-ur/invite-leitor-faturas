@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { lerFaturaNeoenergia, analisarBoleto, analisarChaveNf3e } from '../src/leitor/faturaNeoenergia.js';
-import { DANFE_PADRAO, linhaBoleto, chaveNf3e, textoDanfeElektroB } from './faturaDanfeMock.js';
+import { DANFE_PADRAO, linhaBoleto, chaveNf3e, textoDanfeElektroB, textoDanfeElektroBaixaRenda } from './faturaDanfeMock.js';
 
 /**
  * Regressão do layout REAL da Elektro (DANFELEKB V1.00), calibrado com fatura
@@ -86,6 +86,49 @@ describe('Layout real Elektro (DANFELEKB V1.00)', () => {
       }),
     );
     expect(r.fatura.energiaInjetadaKwh).toBe(500);
+  });
+});
+
+describe('Layout real Elektro — variante baixa renda (fatura real de out/2026)', () => {
+  const l = lerFaturaNeoenergia(textoDanfeElektroBaixaRenda(), { ucEsperada: '123.456.789-01' });
+  const itens = l.fatura.itens as Array<{ descricao: string; unidade: string | null; quantidade: number | null; valor: number | null }>;
+
+  it('UC de 11 dígitos escrita como CPF é lida como UC', () => {
+    expect(l.fatura.uc).toBe('12345678901');
+    expect(l.cobertura.find((c) => c.campo === 'uc')!.origem).toBe('layout');
+    expect(l.verificacoes.find((v) => v.nome === 'uc_confere')!.ok).toBe(true);
+  });
+
+  it('lê todos os itens, inclusive unidade "UN" e item negativo, e a soma fecha com o total', () => {
+    expect(itens).toHaveLength(12);
+    expect(itens.find((i) => i.descricao === 'SUBSIDIO TARIFARIO TE')).toMatchObject({ unidade: 'UN', quantidade: 30, valor: 33 });
+    expect(itens.find((i) => i.descricao === 'SUBSIDIO TARIFARIO LIQUIDO')).toMatchObject({ unidade: null, valor: -77 });
+    expect(itens.find((i) => i.descricao === 'CORRECAO MONETARIA POR ATRASO 08/2026')!.valor).toBe(0.01);
+    expect(l.fatura.valor).toBe(48.6);
+    expect(l.verificacoes.find((v) => v.nome === 'itens_somam_total')!.ok).toBe(true);
+    expect(l.verificacoes.filter((v) => !v.ok)).toEqual([]);
+  });
+
+  it('histórico colado nas linhas de item, com meses sem consumo', () => {
+    const h = l.fatura.historicoConsumo as Array<{ periodo: string; kwh: number | null; dias: number | null }>;
+    expect(h.map((x) => x.periodo)).toEqual(['OCT/26', 'SEP/26', 'AUG/26', 'JUL/26', 'JUN/26', 'JAN/26', 'DEC/25']);
+    expect(h[0]).toEqual({ periodo: 'OCT/26', kwh: 130, dias: 31 });
+    expect(h[5]).toEqual({ periodo: 'JAN/26', kwh: null, dias: null });
+    // o pedaço de histórico não pode contaminar a descrição nem o valor do item
+    expect(itens.find((i) => i.descricao.startsWith('JUROS'))).toMatchObject({ descricao: 'JUROS CONTA ANTERIOR 08/2026', valor: 0.2 });
+  });
+
+  it('código débito em conta por extenso (7 dígitos), duas bandeiras e consumo pelo medidor', () => {
+    expect(l.fatura.codigoDebitoConta).toBe('7654321');
+    expect(l.fatura.bandeira).toBe('Amarela 05/09-30/09; Verde 01/10-05/10');
+    expect(l.fatura.consumoKwh).toBe(130);
+    expect(l.fatura.classificacao).toMatch(/BAIXA RENDA/);
+  });
+
+  it('cadastro com o código débito de 7 dígitos no lugar da UC é acusado', () => {
+    const r = lerFaturaNeoenergia(textoDanfeElektroBaixaRenda(), { ucEsperada: '7654321' });
+    expect(r.alertas.join(' ')).toMatch(/Código débito em conta/);
+    expect(r.fatura.uc).toBe('12345678901');
   });
 });
 

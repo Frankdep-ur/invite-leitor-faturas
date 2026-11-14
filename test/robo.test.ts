@@ -7,7 +7,7 @@ import { RoboNeoenergia, extrairPdfDeCorpo, type OpcoesRobo } from '../src/robo/
 import { extrairTextoPdf } from '../src/leitor/pdfTexto.js';
 import { lerFaturaNeoenergia } from '../src/leitor/faturaNeoenergia.js';
 import { htmlFatura } from './faturaMock.js';
-import { BASE_MOCK, instalarPortal, type ModoPortal } from './portalMock.js';
+import { BASE_MOCK, instalarPortal, type ModoPortal, type OpcoesPortal } from './portalMock.js';
 
 let PDF: Buffer;
 
@@ -21,12 +21,12 @@ beforeAll(async () => {
 
 const CRED = { tipo: 'cpf' as const, documento: '123.456.789-01', senha: 'senha-certa', uf: 'SP' };
 
-async function rodar(modo: ModoPortal, uc: string, extra: Partial<OpcoesRobo> = {}, cred = CRED) {
+async function rodar(modo: ModoPortal, uc: string, extra: Partial<OpcoesRobo> = {}, cred = CRED, portal: OpcoesPortal = {}) {
   const robo = new RoboNeoenergia({
     baseUrl: BASE_MOCK,
     headless: true,
     timeoutMs: 8_000,
-    aoCriarContexto: (ctx) => instalarPortal(ctx, modo, PDF),
+    aoCriarContexto: (ctx) => instalarPortal(ctx, modo, PDF, portal),
     ...extra,
   });
   await robo.abrir();
@@ -75,6 +75,21 @@ describe('Robô contra portal simulado', () => {
     expect(r.detalhe).toMatch(/Senha inválida/);
   });
 
+  it('formato do portal real: clica LOGIN no topo, preenche o diálogo (campos sem id conhecido) e baixa', async () => {
+    const r = await rodar('resposta', '12345678', {}, CRED, { loginEmDialogo: true });
+    // Passa por: abrir o diálogo, não digitar no campo-isca de CPF fora dele,
+    // e não confundir o texto fixo "Dados incorretos..." com recusa de login.
+    expect(r.status).toBe('ok');
+    expect(r.pdf!.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+  });
+
+  it('formato do portal real com senha errada: login_recusado pela mensagem NOVA', async () => {
+    const r = await rodar('resposta', '12345678', {}, { ...CRED, senha: 'errada' }, { loginEmDialogo: true });
+    expect(r.status).toBe('login_recusado');
+    expect(r.detalhe).toMatch(/Usuário ou senha inválidos/);
+    expect(r.detalhe).not.toMatch(/Dados incorretos impedem/);
+  });
+
   it('página de bloqueio do CDN: bloqueado, sem tentar contornar', async () => {
     const r = await rodar('bloqueado', '12345678');
     expect(r.status).toBe('bloqueado');
@@ -95,7 +110,7 @@ describe('Robô contra portal simulado', () => {
     const r = await rodar('resposta', '12345678', { rastreioDir: dir });
     expect(r.status).toBe('ok');
     const arquivos = await fs.readdir(dir);
-    expect(arquivos.some((a) => a.endsWith('login_aberto.png'))).toBe(true);
+    expect(arquivos.some((a) => a.endsWith('login_formulario.png'))).toBe(true);
     expect(arquivos.some((a) => a.endsWith('pdf_capturado.json'))).toBe(true);
     const tudo = (await Promise.all(arquivos.filter((a) => a.endsWith('.json')).map((a) => fs.readFile(path.join(dir, a), 'utf8')))).join('\n');
     expect(tudo).not.toContain('senha-certa');

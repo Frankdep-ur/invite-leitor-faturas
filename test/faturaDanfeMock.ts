@@ -118,3 +118,63 @@ export function textoDanfeElektroB(d: DadosDanfe = DANFE_PADRAO): string {
     'DANFELEKB (V1.00)',
   ].join('\n');
 }
+
+/**
+ * Variante "baixa renda" do mesmo layout (conferida com fatura real de out/2026),
+ * também com dados fictícios. Cobre o que a primeira fatura não tinha:
+ *  - UC de 11 dígitos escrita como CPF ("123.456.789-01");
+ *  - itens com unidade "UN" e item NEGATIVO (subsídio);
+ *  - histórico de consumo colado no fim das linhas de item, com meses vazios;
+ *  - "CODIGO DEBITO EM CONTA" escrito por extenso (7 dígitos);
+ *  - duas bandeiras no mesmo período.
+ */
+export function textoDanfeElektroBaixaRenda(): string {
+  const boleto = linhaBoleto(48.6, '2026-11-16');
+  return [
+    'R Rua Fictícia, 100 - Bairro Exemplo',
+    'CEP: 00000-000 - Cidade Exemplo - SP',
+    'CNPJ 00.000.000/0001-91',
+    'NOTA FISCAL No. 87654321 - SÉRIE 0 DATA DE EMISSÃO: 07/10/2026',
+    'Consulte Chave de Acesso em:',
+    'CLIENTE FICTICIO DA SILVA',
+    'CPF - *******0000 IE:   123.456.789-01',
+    'Chave de Acesso',
+    chaveNf3e(87654321, '2610'),
+    'R DA AMOSTRA, 2 -',
+    'Protocolo de Autorização: 3352600000000001 07/10/2026 10:00:00',
+    'CENTRO',
+    'CIDADE TESTE - SP - CEP 00000-000   America/Sao_Paulo',
+    'Outubro/2026   R$48,60   16/11/2026',
+    'B1 RESIDENCIAL / RESIDENCIAL BAIXA RENDA   BAIXA RENDA / MONOFASICO',
+    '04/09/2026   05/10/2026   32   05/11/2026',
+    'CONSUMO TE   kWh   80   0,000000   0,00   0,00   0,00 12%   0,00   0,000000 ICMS   123,39   12%   14,81',
+    'CONSUMO TE   kWh   50   0,400000   20,00   0,97   20,00 12%   2,40   0,330000 COFINS   100,00   4,53%   4,53',
+    'CONSUMO TUSD   kWh   80   0,000000   0,00   0,00   0,00 12%   0,00   0,000000 PIS   100,00   0,98%   0,98',
+    'CONSUMO TUSD   kWh   50   0,500000   25,00   1,21   25,00 12%   3,00   0,410000',
+    'SUBSIDIO TARIFARIO TE   UN   30,00   1,100000   33,00   0,00   33,00 12%   3,96   1,000000',
+    'SUBSIDIO TARIFARIO TUSD   UN   40,00   1,100000   44,00   0,00   44,00 12%   5,28   1,000000',
+    'AD.B.AMAR.   kWh   60,500000   0,000000   0,00   0,00   0,00 12%   0,00   0,000000',
+    'AD.B.AMAR.   kWh   69,500000   0,020000   1,39   0,07   1,39 12%   0,17   0,016000   Fat Dias',
+    'MULTA CONTA ANTERIOR 08/2026   2,00   0%',
+    'JUROS CONTA ANTERIOR 08/2026   0,20   0%   OCT26   130 31',
+    'SEP26   140 30',
+    'CORRECAO MONETARIA POR ATRASO 08/2026   0,01   0%   AUG26   150 30',
+    'SUBSIDIO TARIFARIO LIQUIDO   -77,00   0%   JUL26   160 31',
+    'JUN26   170 30',
+    'JAN26',
+    'DEC25',
+    'M00000002   CONSUMO kWh   TP   20000   20130   1   130',
+    'Subvencao Decreto 7891/2013 R$ 77,00',
+    'BandeiraTarifaria Amarela:05/09-30/09 Verde:01/10-05/10',
+    'CODIGO DEBITO EM CONTA 7654321',
+    '16/11/2026   R$48,60',
+    '7654321',
+    'Outubro/2026',
+    'BANCO ITAU S A 341-7   PAGAVEL EM QUALQUER BANCO.',
+    boleto,
+    '109/00000000-1   FAT-01-202610000000001.00   16/11/2026   R$ 48,60',
+    'ELEKTRO REDES S.A.',
+    boleto,
+    'DANFELEKB (V1.00)',
+  ].join('\n');
+}

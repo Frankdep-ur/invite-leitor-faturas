@@ -203,8 +203,11 @@ function lerLayoutElektroB(t: string): LayoutLido | null {
   const linhas = t.split('\n').map((l) => l.trim());
   const campos: LayoutLido['campos'] = {};
 
-  // UC: "1.234.567.890-12"
-  const uc = t.match(/(?<![\d.])(\d\.\d{3}\.\d{3}\.\d{3}-\d{2})(?![\d-])/);
+  // UC: "1.234.567.890-12" (12 dígitos) ou "123.456.789-01" (11 dígitos; parece CPF, mas é UC).
+  // Fica na linha do documento do cliente ("CNPJ - ****0001 IE: ...   <UC>"); o CPF/CNPJ vem mascarado.
+  const RE_UC = /(?<![\d.\/])(\d{1,3}(?:\.\d{3}){2,3}-\d{2})(?![\d-])/;
+  const linhaDoc = linhas.find((l) => /\bIE:/.test(l) && RE_UC.test(l));
+  const uc = (linhaDoc ?? t).match(RE_UC);
   if (uc) campos.uc = apenasDigitos(uc[1]!);
 
   // "Novembro/2026   R$409,36   18/11/2026" (ref / total / vencimento)
@@ -235,19 +238,38 @@ function lerLayoutElektroB(t: string): LayoutLido | null {
     tributos[m[1]!] ??= { base: paraNumero(m[2]!), aliquota: paraNumero(m[3]!), valor: paraNumero(m[4]!) };
   }
 
-  // Itens da fatura: entre a linha de leituras e o histórico/medidor.
+  // Medidor: "B00000001   CONSUMO kWh   TP   12000   12331   1   331"
+  const RE_MEDIDOR = /^(\S+)\s{3,}CONSUMO\s+kWh\s{3,}(\S+)\s{3,}(\d+)\s{3,}(\d+)\s{3,}(\d+(?:,\d+)?)\s{3,}(\d+(?:,\d+)?)\s*$/i;
+  const iMed = linhas.findIndex((l) => RE_MEDIDOR.test(l));
+  const med = iMed >= 0 ? linhas[iMed]!.match(RE_MEDIDOR) : null;
+
+  // Itens da fatura e histórico de consumo: ficam entre a linha de leituras e o medidor.
+  // Quando há muitos itens, o histórico ("Fat Dias", "OCT26   180 31") vem COLADO no fim
+  // das linhas de item, e o quadro de tributos também. Separamos cada pedaço.
   const itens: ItemFatura[] = [];
-  const fimItens = linhas.findIndex((l, i) => i > iLeit && (/^Fat\s+Dias$/i.test(l) || rx(`^(?:${MES_ABREV})\\d{2}\\s+\\d+\\s+\\d{1,2}$`).test(l)));
+  const historico: LayoutLido['historico'] = [];
+  const RE_HIST_FIM = rx(`(?:^|\\s+)(${MES_ABREV})(\\d{2})(?:\\s+(\\d+)\\s+(\\d{1,2}))?\\s*$`);
+  const RE_TRIB_FIM = /\s+(?:ICMS|COFINS|PIS)\s+[\d.]+,\d{2}\s+[\d,]+%\s+[\d.]+,\d{2}\s*$/;
+  const n = (s?: string) => (s === undefined ? null : paraNumero(s.replace('%', '')));
   if (iLeit >= 0) {
-    for (const bruta of linhas.slice(iLeit + 1, fimItens > 0 ? fimItens : undefined)) {
-      const l = bruta.replace(/\s+(?:ICMS|COFINS|PIS)\s+[\d.]+,\d{2}\s+[\d,]+%\s+[\d.]+,\d{2}\s*$/, '');
+    const fim = iMed > iLeit ? iMed : Math.min(linhas.length, iLeit + 60);
+    for (const bruta of linhas.slice(iLeit + 1, fim)) {
+      let l = bruta;
+      const h = l.match(RE_HIST_FIM);
+      if (h) {
+        // Mês sem números (ex.: "JAN26") = sem consumo registrado naquele mês.
+        historico.push({ periodo: `${h[1]!.toUpperCase()}/${h[2]}`, kwh: h[3] ? Number(h[3]) : null, dias: h[4] ? Number(h[4]) : null });
+        l = l.slice(0, h.index).trimEnd();
+      }
+      l = l.replace(/\s*Fat\s+Dias\s*$/i, '').replace(RE_TRIB_FIM, '').trim();
+      if (!l) continue;
       const partes = l.split(/\s{3,}/);
       const descricao = partes[0] ?? '';
       if (!/^[A-ZÀ-Ú]/i.test(descricao) || partes.length < 2) continue;
-      const unidade = /^kWh$/i.test(partes[1]!) ? 'kWh' : null;
+      // Unidade: "kWh", "UN", "kW"... (coluna só com letras, curta)
+      const unidade = /^[A-Za-z]{1,6}$/.test(partes[1]!) ? partes[1]! : null;
       const resto = partes.slice(unidade ? 2 : 1).join(' ');
       const tok = resto.match(/-?[\d.]*\d,\d+%?|-?\d+%?/g) ?? [];
-      const n = (s?: string) => (s === undefined ? null : paraNumero(s.replace('%', '')));
       itens.push(
         unidade
           ? { descricao, unidade, quantidade: n(tok[0]), precoUnitario: n(tok[1]), valor: n(tok[2]), pisCofins: n(tok[3]), baseIcms: n(tok[4]), aliquotaIcms: n(tok[5]), icms: n(tok[6]), tarifaUnitaria: n(tok[7]) }
@@ -255,29 +277,24 @@ function lerLayoutElektroB(t: string): LayoutLido | null {
       );
     }
   }
-
-  // Histórico: "NOV26   331 31" (meses em inglês ou português)
-  const historico: LayoutLido['historico'] = [];
-  for (const m of t.matchAll(rx(`^(${MES_ABREV})(\\d{2})\\s+(\\d+)\\s+(\\d{1,2})$`, 'gim'))) {
-    historico.push({ periodo: `${m[1]!.toUpperCase()}/${m[2]}`, kwh: Number(m[3]), dias: Number(m[4]) });
-  }
-
-  // Medidor: "B00000001   CONSUMO kWh   TP   12000   12331   1   331"
-  const med = t.match(/^(\S+)\s{3,}CONSUMO\s+kWh\s{3,}(\S+)\s{3,}(\d+)\s{3,}(\d+)\s{3,}(\d+(?:,\d+)?)\s{3,}(\d+(?:,\d+)?)\s*$/im);
   const medidor = med
     ? { numero: med[1]!, posto: med[2]!, leituraAnterior: Number(med[3]), leituraAtual: Number(med[4]), constante: paraNumero(med[5]!), consumoKwh: paraNumero(med[6]!) }
     : null;
   if (medidor) campos.consumo_kwh = medidor.consumoKwh;
 
-  // Código débito em conta: linha só com dígitos logo após "18/11/2026   R$409,36" (canhoto)
-  let codigoDebito: string | null = null;
+  // Código débito em conta (7 ou 8 dígitos): às vezes vem escrito ("CODIGO DEBITO EM CONTA 1234567");
+  // sempre aparece no canhoto, numa linha só com dígitos logo após "18/11/2026   R$409,36".
+  let codigoDebito: string | null = t.match(/C[ÓO]DIGO\s+D[ÉE]BITO\s+EM\s+CONTA\s+(\d{6,10})\b/i)?.[1] ?? null;
   const iCanhoto = linhas.findIndex((l) => /^\d{2}\/\d{2}\/\d{4}\s+R\$\s?[\d.]+,\d{2}$/.test(l));
-  if (iCanhoto >= 0 && /^\d{6,10}$/.test(linhas[iCanhoto + 1] ?? '')) codigoDebito = linhas[iCanhoto + 1]!;
+  if (!codigoDebito && iCanhoto >= 0 && /^\d{6,10}$/.test(linhas[iCanhoto + 1] ?? '')) codigoDebito = linhas[iCanhoto + 1]!;
 
   const nf = t.match(/NOTA\s+FISCAL\s+N[ºO°]?\.?\s*(\d+)\s*-\s*S[ÉE]RIE\s+(\w+)(?:\s+DATA\s+DE\s+EMISS[ÃA]O:?\s*(\d{2}\/\d{2}\/\d{4}))?/i);
   const chave = t.match(/(?<!\d)(\d{4}(?: \d{4}){10})(?!\d)/);
   const boleto = t.match(/(?<!\d)(\d{5}\.\d{5}\s+\d{5}\.\d{6}\s+\d{5}\.\d{6}\s+\d\s+\d{14})(?!\d)/);
-  const bandeira = t.match(/Bandeira\s*Tarif[áa]ria\s+([A-Za-zÀ-ú ]+?)\s*:/i);
+  // "BandeiraTarifaria Amarela:05/09-30/09 Verde:01/10-05/10" (pode haver mais de uma no período)
+  const linhaBandeira = linhas.find((l) => /^Bandeira\s*Tarif[áa]ria\b/i.test(l)) ?? '';
+  const bandeiras = [...linhaBandeira.matchAll(/([A-Za-zÀ-ú]+(?:\s+P?\d)?)\s*:\s*(\d{2}\/\d{2}\s*-\s*\d{2}\/\d{2})/g)].map((m) => `${m[1]} ${m[2]}`);
+  const bandeiraUnica = linhaBandeira.match(/Bandeira\s*Tarif[áa]ria\s+([A-Za-zÀ-ú ]+?)\s*:/i)?.[1]?.trim() ?? null;
 
   return {
     versao: ver[1]!,
@@ -287,7 +304,7 @@ function lerLayoutElektroB(t: string): LayoutLido | null {
     historico,
     codigoDebito,
     medidor,
-    bandeira: bandeira ? bandeira[1]!.trim() : null,
+    bandeira: bandeiras.length > 1 ? bandeiras.join('; ') : bandeiraUnica,
     chave: chave ? apenasDigitos(chave[1]!) : null,
     linhaDigitavel: boleto ? boleto[1]! : null,
     nota: { numero: nf?.[1] ?? null, serie: nf?.[2] ?? null, emissao: nf?.[3] ? paraDataISO(nf[3]) : null },

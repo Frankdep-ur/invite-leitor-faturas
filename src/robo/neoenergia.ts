@@ -260,16 +260,112 @@ export class RoboNeoenergia {
     return this.p.evaluate((k) => Boolean(window.localStorage.getItem(k)), SELETORES.logado.chaveLocalStorage).catch(() => false);
   }
 
-  /** No modo assistido (com janela), espera uma pessoa agir até `condicao` ser verdadeira. */
+  /**
+   * No modo assistido (com janela), espera uma pessoa agir até `condicao` ser verdadeira.
+   * Enquanto espera, registra no rastreio cada tela por onde a pessoa passa: é assim que
+   * o robô "aprende" o caminho real do portal para a próxima calibração.
+   */
   private async esperarPessoa(motivo: string, condicao: () => Promise<boolean>): Promise<boolean> {
     if (!this.assistido || this.headless) return false;
     this.log(`>>> AÇÃO MANUAL: ${motivo} (aguardando até ${Math.round(this.esperaAssistidoMs / 1000)} s)`);
     const fim = Date.now() + this.esperaAssistidoMs;
-    while (Date.now() < fim) {
-      if (await condicao().catch(() => false)) return true;
-      await this.pausa(1000);
+    let urlAnterior = this.page?.url() ?? '';
+    let telas = 0;
+    try {
+      while (Date.now() < fim) {
+        if (await condicao().catch(() => false)) return true;
+        const url = this.p.url();
+        if (url !== urlAnterior && telas < 12) {
+          urlAnterior = url;
+          telas++;
+          await this.assentar();
+          await this.rastreio.etapa(this.p, `manual_${telas}`);
+        }
+        await this.pausa(1000);
+      }
+    } catch {
+      /* janela fechada pela pessoa */
     }
     return false;
+  }
+
+  /** Mapa da tela atual (campos, botões, títulos), para diagnóstico. Sem valores digitados. */
+  async mapaDaTela(): Promise<Record<string, unknown> | null> {
+    if (!this.page) return null;
+    return this.rastreio.mapear(this.page);
+  }
+
+  // -------------------------------------------------------------------------
+  // Formulário de login: abrir e localizar campos
+  // -------------------------------------------------------------------------
+  private candidatosSenha(): Array<() => Locator> {
+    const p = this.p;
+    const dlg = () => p.locator(SELETORES.login.dialogo);
+    return [
+      ...SELETORES.login.senha.map((sel) => () => dlg().locator(sel).first()),
+      ...SELETORES.login.senha.map((sel) => () => p.locator(sel).first()),
+    ];
+  }
+
+  /** Faz o formulário aparecer: aceita cookies e clica no botão de login do topo, se preciso. */
+  private async abrirFormularioLogin(): Promise<Locator | null> {
+    const p = this.p;
+    let senha = await this.esperarVisivel(this.candidatosSenha(), 3_000);
+    if (senha) return senha.loc;
+
+    const fim = Date.now() + this.timeoutMs;
+    let cliques = 0;
+    let cookiesVistos = false;
+    while (Date.now() < fim && cliques < 3) {
+      if (!cookiesVistos) {
+        const ck = await this.esperarVisivel([() => p.getByRole('button', { name: SELETORES.login.cookies }).first()], 0);
+        if (ck) {
+          cookiesVistos = true;
+          await ck.loc.click().catch(() => {});
+        }
+      }
+      const abrir = await this.esperarVisivel(
+        [...SELETORES.login.abrirFormulario.map((sel) => () => p.locator(sel).first()), () => this.clicavel(SELETORES.login.abrirFormularioTexto)],
+        2_000,
+      );
+      if (abrir) {
+        cliques++;
+        this.log('abrindo o formulário de login (botão do topo)');
+        await abrir.loc.click().catch(() => {});
+        senha = await this.esperarVisivel(this.candidatosSenha(), 8_000);
+      } else {
+        senha = await this.esperarVisivel(this.candidatosSenha(), 1_000);
+      }
+      if (senha) return senha.loc;
+    }
+    return null;
+  }
+
+  /** O campo de usuário é o último campo de texto visível ANTES da senha, no mesmo formulário/diálogo. */
+  private async campoAntesDaSenha(senha: Locator): Promise<Locator | null> {
+    const idx = await senha
+      .evaluate((el) => {
+        const visivel = (e: Element) => {
+          const r = (e as HTMLElement).getBoundingClientRect();
+          const st = getComputedStyle(e as HTMLElement);
+          return r.width > 0 && r.height > 0 && st.visibility !== 'hidden' && st.display !== 'none';
+        };
+        const escopo = el.closest('form') ?? el.closest('mat-dialog-container, [role=dialog]') ?? document.body;
+        const ignorar = ['password', 'hidden', 'checkbox', 'radio', 'submit', 'button', 'file'];
+        const candidatos = [...escopo.querySelectorAll('input')].filter(
+          (i) => visivel(i) && !ignorar.includes((i.getAttribute('type') ?? 'text').toLowerCase()) && Boolean(i.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING),
+        );
+        const alvo = candidatos[candidatos.length - 1];
+        return alvo ? [...document.querySelectorAll('input')].indexOf(alvo) : -1;
+      })
+      .catch(() => -1);
+    return idx >= 0 ? this.p.locator('input').nth(idx) : null;
+  }
+
+  /** Linhas de texto das áreas de mensagem (para comparar antes/depois de clicar em Entrar). */
+  private async linhasAlertas(): Promise<string[]> {
+    const texto = await this.textoAlertas();
+    return [...new Set(texto.split(/\n|\s\|\s/).map((l) => l.trim()).filter(Boolean))];
   }
 
   // -------------------------------------------------------------------------
@@ -289,22 +385,25 @@ export class RoboNeoenergia {
       return this.falha('bloqueado', 'O portal respondeu com página de bloqueio (Access Denied). Não insistir; rodar de uma máquina com internet comum.', 'login_abrir');
     }
 
-    // Espera o formulário (a SPA monta depois do JS carregar).
-    const usuarioCand = [
-      ...SELETORES.login.usuario.map((s) => () => p.locator(s).first()),
-      () => p.getByLabel(SELETORES.login.rotuloUsuario).first(),
-    ];
-    const achouUsuario = await this.esperarVisivel(usuarioCand, this.timeoutMs);
-    await this.rastreio.etapa(p, 'login_aberto');
-    if (!achouUsuario) {
+    // Formulário: no portal real ele só aparece depois de clicar no botão de login do topo.
+    let senhaLoc = await this.abrirFormularioLogin();
+    await this.rastreio.etapa(p, senhaLoc ? 'login_formulario' : 'login_sem_formulario');
+    if (!senhaLoc) {
       if (await this.bloqueado()) return this.falha('bloqueado', 'Bloqueio do CDN na tela de login.', 'login_abrir');
-      return this.falha('layout', 'Campo de CPF/CNPJ não apareceu na tela de login.', 'login_campos');
+      const ok = await this.esperarPessoa(
+        'na janela do Chrome, abra a tela onde aparecem os campos de CPF/CNPJ e senha (NÃO digite nada: o robô preenche)',
+        async () => Boolean(await this.esperarVisivel(this.candidatosSenha(), 0)),
+      );
+      senhaLoc = ok ? ((await this.esperarVisivel(this.candidatosSenha(), 2_000))?.loc ?? null) : null;
+      if (!senhaLoc) return this.falha('layout', 'O formulário de login (CPF/CNPJ e senha) não apareceu.', 'login_campos');
+      await this.rastreio.etapa(p, 'login_formulario');
     }
+    const dlg = p.locator(SELETORES.login.dialogo);
 
-    // Estado/distribuidora, se o portal pedir.
+    // Estado/distribuidora, se o formulário pedir.
     const uf = (c.uf ?? 'SP').toUpperCase();
     const nomeUf = SELETORES.login.nomeUf[uf];
-    const campoUf = await this.esperarVisivel(SELETORES.login.uf.map((s) => () => p.locator(s).first()), 500);
+    const campoUf = await this.esperarVisivel(SELETORES.login.uf.map((sel) => () => p.locator(sel).first()), 500);
     if (campoUf && nomeUf) {
       const tag = await campoUf.loc.evaluate((e) => e.tagName.toLowerCase());
       if (tag === 'select') {
@@ -319,15 +418,21 @@ export class RoboNeoenergia {
       }
     }
 
-    // CPF/CNPJ — digitado tecla a tecla: as máscaras do Angular só formatam com eventos de tecla.
-    const usuario = achouUsuario.loc;
+    // Campo de CPF/CNPJ. Ordem de confiança: seletor conhecido DENTRO do diálogo; o campo
+    // logo antes da senha no mesmo formulário; só então seletores na página toda (onde pode
+    // haver outros campos de CPF, como consulta de débito).
+    let usuario =
+      (await this.esperarVisivel(SELETORES.login.usuario.map((sel) => () => dlg.locator(sel).first()), 1_000))?.loc ??
+      (await this.campoAntesDaSenha(senhaLoc)) ??
+      (await this.esperarVisivel([...SELETORES.login.usuario.map((sel) => () => p.locator(sel).first()), () => p.getByLabel(SELETORES.login.rotuloUsuario).first()], 1_000))?.loc ??
+      null;
+    if (!usuario) return this.falha('layout', 'Campo de CPF/CNPJ não identificado no formulário de login.', 'login_campos');
+
+    // Digitado tecla a tecla: as máscaras do Angular só formatam com eventos de tecla.
     await usuario.click();
     await usuario.fill('');
     await usuario.pressSequentially(apenasDigitos(c.documento), { delay: 25 });
-
-    const senha = await this.esperarVisivel(SELETORES.login.senha.map((s) => () => p.locator(s).first()), 5_000);
-    if (!senha) return this.falha('layout', 'Campo de senha não encontrado.', 'login_campos');
-    await senha.loc.fill(c.senha);
+    await senhaLoc.fill(c.senha);
     await this.rastreio.etapa(p, 'login_preenchido');
 
     if (await this.captchaVisivel()) {
@@ -335,14 +440,30 @@ export class RoboNeoenergia {
       if (!ok) return this.falha('captcha', 'Captcha visível antes do login.', 'login_captcha');
     }
 
-    const entrar = await this.esperarVisivel([() => this.clicavel(SELETORES.login.botaoEntrar), () => p.locator('button[type="submit"]').first()], 5_000);
-    if (!entrar) return this.falha('layout', 'Botão Entrar não encontrado.', 'login_entrar');
-    const fimHabilitar = Date.now() + 10_000;
-    while (Date.now() < fimHabilitar && !(await entrar.loc.isEnabled().catch(() => false))) await this.pausa(250);
-    if (!(await entrar.loc.isEnabled().catch(() => false))) {
-      return this.falha('layout', 'Botão Entrar não habilitou (documento em formato inválido ou etapa de UF pendente).', 'login_entrar');
+    // Mensagens que já estavam na tela ANTES de enviar não contam como erro de login.
+    const alertasAntes = new Set(await this.linhasAlertas());
+    const entrar = await this.esperarVisivel(
+      [
+        ...SELETORES.login.botaoEntrarSeletores.map((sel) => () => p.locator(sel).first()),
+        () => dlg.getByRole('button', { name: SELETORES.login.botaoEntrar }).first(),
+        () => dlg.locator('button[type="submit"]').first(),
+        () => this.clicavel(SELETORES.login.botaoEntrar),
+        () => p.locator('button[type="submit"]').first(),
+      ],
+      5_000,
+    );
+    if (entrar) {
+      const fimHabilitar = Date.now() + 10_000;
+      while (Date.now() < fimHabilitar && !(await entrar.loc.isEnabled().catch(() => false))) await this.pausa(250);
+      if (!(await entrar.loc.isEnabled().catch(() => false))) {
+        await this.rastreio.etapa(p, 'login_entrar_desabilitado');
+        return this.falha('layout', 'Botão Entrar não habilitou (documento em formato inválido ou alguma etapa do formulário pendente).', 'login_entrar');
+      }
+      await entrar.loc.click();
+    } else {
+      this.log('botão Entrar não identificado; enviando com Enter no campo de senha');
+      await senhaLoc.press('Enter');
     }
-    await entrar.loc.click();
 
     // Desfecho: sessão criada, erro de login, captcha ou bloqueio.
     for (let rodada = 0; rodada < 2 && !this.logado; rodada++) {
@@ -355,14 +476,13 @@ export class RoboNeoenergia {
           break;
         }
         const naTelaDeLogin = /login/i.test(p.url());
-        if (naTelaDeLogin) {
-          const alertas = await this.textoAlertas();
-          const m = alertas.match(SELETORES.login.erroLogin);
-          if (m) {
-            await this.rastreio.etapa(p, 'login_recusado');
-            return this.falha('login_recusado', `Portal recusou o login: "${alertas.slice(0, 160)}". Não vamos tentar de novo.`, 'login_desfecho');
-          }
-        } else if (SELETORES.logado.texto.test(await this.textoPagina())) {
+        const novas = (await this.linhasAlertas()).filter((l) => !alertasAntes.has(l));
+        const recusa = novas.find((l) => SELETORES.login.erroLogin.test(l));
+        if (recusa) {
+          await this.rastreio.etapa(p, 'login_recusado');
+          return this.falha('login_recusado', `Portal recusou o login: "${recusa.slice(0, 160)}". Não vamos tentar de novo.`, 'login_desfecho');
+        }
+        if (!naTelaDeLogin && SELETORES.logado.texto.test(await this.textoPagina())) {
           this.logado = true;
           break;
         }
@@ -422,7 +542,7 @@ export class RoboNeoenergia {
       const ok = await this.esperarPessoa(`selecione a UC ${digitos} na janela`, async () => textoUc().isVisible());
       if (!ok) {
         await this.rastreio.etapa(p, 'uc_nao_encontrada');
-        const dica = digitos.length === 8 ? ' (8 dígitos costuma ser o "código débito em conta", não a UC: confira na fatura)' : '';
+        const dica = digitos.length === 7 || digitos.length === 8 ? ' (7 ou 8 dígitos é o formato do "código débito em conta", não da UC: confira na fatura)' : '';
         return this.falha('uc_nao_encontrada', `UC ${digitos} não aparece para este login${dica}.`, 'uc');
       }
     }

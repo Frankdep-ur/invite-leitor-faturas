@@ -17,6 +17,17 @@ export const SELETORES = {
 
   login: {
     rota: '/#/login',
+    /**
+     * No portal real o formulário de login NÃO fica direto na página: é um diálogo
+     * que abre ao clicar no botão de login do cabeçalho. (Visto no 1º teste de campo:
+     * a página carregou, mas sem campos de CPF/senha até clicar.)
+     */
+    abrirFormulario: ['button.btn-login', 'app-header button.btn-login', 'header button.btn-login'],
+    abrirFormularioTexto: /^\s*(login|entrar|acessar|fazer login|acesse sua conta|j[áa] sou cliente|[áa]rea do cliente)\s*$/i,
+    /** Onde o formulário aparece depois de aberto. */
+    dialogo: 'mat-dialog-container, app-dialog-login, [role=dialog]',
+    /** Aviso de cookies: aceitar para não cobrir a tela. */
+    cookies: /^\s*(aceitar( todos)?( os)?( cookies)?|aceito|concordo|entendi|ok,? entendi|prosseguir)\s*$/i,
     /** Escolha de estado/distribuidora (Elektro = SP ou MS), quando o portal pedir. */
     uf: [
       'mat-select[formcontrolname*="uf" i]',
@@ -37,9 +48,10 @@ export const SELETORES = {
     rotuloUsuario: /cpf|cnpj|documento/i,
     senha: ['#password', 'input[formcontrolname="password"]', 'input[type="password"]'],
     botaoEntrar: /^\s*entrar\s*$/i,
-    /** Testada SÓ no texto de alertas/diálogos (nunca na página toda, para não casar rótulos). */
+    botaoEntrarSeletores: ['mat-dialog-container button[title="Entrar" i]', 'app-dialog-login button[title="Entrar" i]'],
+    /** Testada SÓ em mensagens que APARECERAM depois de clicar em Entrar (texto fixo da tela não conta). */
     erroLogin:
-      /(senha|usu[aá]rio|login|dados|cpf|cnpj)[^.\n]{0,40}(inv[aá]lid|incorret|n[aã]o (confere|encontrad|cadastrad))|tente novamente|acesso negado|bloquead/i,
+      /(senha|usu[aá]rio|login|dados|cpf|cnpj|credencia)[^.\n]{0,40}(inv[aá]lid|incorret|n[aã]o (confere|encontrad|cadastrad))|usu[aá]rio ou senha|n[aã]o foi poss[ií]vel (realizar|efetuar|fazer)[^.\n]{0,30}(login|acesso|autentica)|verifique (os|seus) dados|tente novamente|acesso negado|bloquead/i,
     /** Onde o portal mostra mensagens de erro. */
     alertas: [
       '[role=alert]',
