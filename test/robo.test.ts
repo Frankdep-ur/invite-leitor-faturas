@@ -95,6 +95,35 @@ describe('Robô contra portal simulado', () => {
     expect(r.status).toBe('ok');
   });
 
+  it('fluxo do PORTAL REAL: abre o menu "Para a Unidade Consumidora", entra na 2ª via, escolhe a UC e baixa', async () => {
+    const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'real-'));
+    const robo = new RoboNeoenergia({
+      baseUrl: BASE_MOCK, headless: true, timeoutMs: 6_000, rastreioDir: dir,
+      aoCriarContexto: (ctx) => instalarPortal(ctx, 'resposta', PDF, { estiloReal: true }),
+    });
+    await robo.abrir();
+    try {
+      expect(await robo.login(CRED)).toBeNull();
+      const r = await robo.baixarFatura('123.456.789-01');
+      expect(r.status).toBe('ok');
+      const etapas = robo.rastreio.etapas;
+      expect(etapas).toContain('menu_1');
+      expect(etapas).toContain('servico_faturas');
+      expect(etapas).toContain('uc_selecionada');
+      // Não pode ter caído na armadilha do "Início" (que reabre o login).
+      const mapas = await Promise.all((await fs.readdir(dir)).filter((a) => a.endsWith('.json') && !a.startsWith('rede')).map((a) => fs.readFile(path.join(dir, a), 'utf8')));
+      expect(mapas.filter((m) => m.includes('"dialogoAberto": true')).length).toBeLessThanOrEqual(2); // só as telas do login
+    } finally {
+      await robo.fechar();
+      await fs.rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('fluxo do PORTAL REAL com UC que não é do login: uc_nao_encontrada (e não baixa a de outra UC)', async () => {
+    const r = await rodar('resposta', '55555555555', {}, CRED, { estiloReal: true });
+    expect(r.status).toBe('uc_nao_encontrada');
+  });
+
   it('página de bloqueio do CDN: bloqueado, sem tentar contornar', async () => {
     const r = await rodar('bloqueado', '12345678');
     expect(r.status).toBe('bloqueado');

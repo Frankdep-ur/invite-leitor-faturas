@@ -96,5 +96,11 @@ export const SELETORES = {
     /** Botões/links de baixar a fatura (o 1º visível costuma ser a mais recente). "2ª via" é menu, não está aqui. */
     baixar: [/baixar/i, /download/i, /\bpdf\b/i, /visualizar/i, /imprimir/i],
     semFatura: /n[ãa]o (h[áa]|existem|foram encontrad)[^.]{0,30}(fatura|conta|d[ée]bito)|nenhuma fatura/i,
+    /**
+     * Menus suspensos do cabeçalho onde ficam os serviços (visto no teste de campo:
+     * "Para a Unidade Consumidora ▾", "Para Você ▾"). Abertos nesta ordem; os
+     * institucionais ("Fale Conosco", "Neoenergia") ficam de fora.
+     */
+    menusSuspensos: [/unidade\s+consumidora/i, /para\s+voc[êe]/i, /servi[çc]os/i, /minha\s+conta|meu\s+perfil/i],
   },
 } as const;

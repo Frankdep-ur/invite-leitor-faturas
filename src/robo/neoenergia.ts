@@ -92,6 +92,8 @@ export class RoboNeoenergia {
   private readonly opts: OpcoesRobo;
   readonly rastreio: Rastreio;
   logado = false;
+  /** UCs já processadas nesta sessão (login). */
+  private ucsNaSessao = 0;
 
   constructor(opts: OpcoesRobo = {}) {
     this.opts = opts;
@@ -150,6 +152,7 @@ export class RoboNeoenergia {
     this.browser = undefined;
     this.page = undefined;
     this.logado = false;
+    this.ucsNaSessao = 0;
   }
 
   // -------------------------------------------------------------------------
@@ -288,6 +291,7 @@ export class RoboNeoenergia {
     }
     const fim = Date.now() + this.esperaAssistidoMs;
     let urlAnterior = this.page?.url() ?? '';
+    let assinaturaAnterior = '';
     let telas = 0;
     try {
       while (Date.now() < fim) {
@@ -299,8 +303,12 @@ export class RoboNeoenergia {
         }
         if (await condicao().catch(() => false)) return true;
         const url = this.p.url();
-        if (url !== urlAnterior && telas < 12) {
+        const assinatura = await this.p
+          .evaluate(() => `${location.hash}|${document.querySelectorAll('button,a,[role=menuitem],input').length}|${(document.body?.innerText || '').length >> 7}`)
+          .catch(() => url);
+        if ((url !== urlAnterior || assinatura !== assinaturaAnterior) && telas < 15) {
           urlAnterior = url;
+          assinaturaAnterior = assinatura;
           telas++;
           await this.assentar();
           await this.rastreio.etapa(this.p, `manual_${telas}`);
@@ -581,90 +589,139 @@ export class RoboNeoenergia {
     const digitos = apenasDigitos(uc);
     const reUc = new RegExp(digitos.split('').join('[.\\-\\s/]?'));
     const textoUc = () => p.getByText(reUc).first();
+    const nunca = () => p.locator('#__nunca__');
 
-    // 1) Selecionar a UC (lista de imóveis/instalações). Se não estiver à vista
-    //    (ex.: ainda na tela da UC anterior), volta ao início primeiro.
-    let achou = await this.esperarVisivel([textoUc], 3_000);
-    if (!achou) {
+    // A partir da 2ª UC da mesma sessão, volta ao começo (a tela ainda é a da UC anterior).
+    // Logo depois do login NÃO navega: no portal real, clicar em "Início" reabria o login.
+    if (this.ucsNaSessao > 0 && !(await this.esperarVisivel([textoUc], 2_000))) {
       const inicio = await this.esperarVisivel(SELETORES.ucs.inicio.map((n) => () => this.clicavel(n)), 1_000);
       if (inicio) await this.clicarEAguardar(inicio.loc);
       else {
         await p.goto(`${this.baseUrl}${SELETORES.ucs.rotaInicio}`, { waitUntil: 'domcontentloaded' }).catch(() => {});
         await this.assentar();
       }
-      achou = await this.esperarVisivel([textoUc], this.timeoutMs);
     }
-    let naLista = false;
-    if (!achou) naLista = await this.ucEmListaSuspensa(reUc);
-    if (!achou && !naLista) {
-      const trocar = await this.esperarVisivel([() => this.clicavel(SELETORES.ucs.trocar)], 2_000);
-      if (trocar) {
-        await this.clicarEAguardar(trocar.loc);
-        achou = await this.esperarVisivel([textoUc], this.timeoutMs);
-        if (!achou) naLista = await this.ucEmListaSuspensa(reUc);
-      }
-    }
-    if (achou) {
-      await this.clicarEAguardar(achou.loc);
-    } else if (!naLista) {
-      await this.rastreio.etapa(p, 'uc_procurando');
-      const ok = await this.esperarPessoa(
-        `na janela do Chrome, escolha o imóvel/UC ${digitos} (ou confira se já está nele)`,
-        async () => textoUc().isVisible(),
-        { enterConfirma: true },
-      );
-      if (!ok) {
-        await this.rastreio.etapa(p, 'uc_nao_encontrada');
-        const dica = digitos.length === 7 || digitos.length === 8 ? ' (7 ou 8 dígitos é o formato do "código débito em conta", não da UC: confira na fatura)' : '';
-        return this.falha('uc_nao_encontrada', `UC ${digitos} não aparece para este login${dica}.`, 'uc');
-      }
-    }
-    await this.rastreio.etapa(p, 'uc_selecionada');
+    this.ucsNaSessao++;
+    await this.rastreio.etapa(p, 'inicio_busca');
 
-    // 2+3) Até achar o PDF: "sem fatura" > botão de baixar > item de menu (cada menu uma vez só).
+    type Acao =
+      | { tipo: 'sem' }
+      | { tipo: 'uc' | 'baixar' | 'menu' | 'suspenso' | 'trocar'; loc: Locator; i: number };
+    let ucVista = false;
+    let ucSelecionada = false;
+    let cliquesUc = 0;
+    let trocarUsado = false;
+    let ultima: Acao['tipo'] | null = null;
     const menusUsados = new Set<number>();
-    for (let rodada = 0; rodada < 5 && !this.captura(); rodada++) {
-      const fim = Date.now() + this.timeoutMs;
-      let acao: { tipo: 'sem' } | { tipo: 'baixar' | 'menu'; loc: Locator; i: number } | null = null;
-      while (Date.now() < fim && !acao && !this.captura()) {
-        if (SELETORES.faturas.semFatura.test(await this.textoPagina())) acao = { tipo: 'sem' };
-        else {
-          const b = await this.esperarVisivel(SELETORES.faturas.baixar.map((n) => () => this.clicavel(n)), 0);
-          if (b) acao = { tipo: 'baixar', ...b };
-          else {
-            const menus = SELETORES.faturas.menu.map((n, i) => () => (menusUsados.has(i) ? p.locator('#__nunca__') : this.clicavel(n)));
-            const m = await this.esperarVisivel(menus, 0);
-            if (m) acao = { tipo: 'menu', ...m };
+    const suspensosUsados = new Set<number>();
+
+    for (let rodada = 0; rodada < 14 && !this.captura(); rodada++) {
+      // 1) Ações diretas na tela, em ordem de prioridade (espera a tela da SPA montar).
+      const espera = rodada === 0 || ultima === 'suspenso' ? 5_000 : this.timeoutMs;
+      const fim = Date.now() + espera;
+      let acao: Acao | null = null;
+      while (!acao && Date.now() < fim && !this.captura()) {
+        if (SELETORES.faturas.semFatura.test(await this.textoPagina())) {
+          acao = { tipo: 'sem' };
+          break;
+        }
+        if (!ucSelecionada && cliquesUc < 2) {
+          const u = await this.esperarVisivel([textoUc], 0);
+          if (u) {
+            ucVista = true;
+            acao = { tipo: 'uc', ...u };
+            break;
           }
         }
-        if (!acao) await this.pausa(250);
+        const b = await this.esperarVisivel(SELETORES.faturas.baixar.map((n) => () => this.clicavel(n)), 0);
+        if (b) {
+          acao = { tipo: 'baixar', ...b };
+          break;
+        }
+        const m = await this.esperarVisivel(SELETORES.faturas.menu.map((n, i) => () => (menusUsados.has(i) ? nunca() : this.clicavel(n))), 0);
+        if (m) {
+          acao = { tipo: 'menu', ...m };
+          break;
+        }
+        await this.pausa(250);
       }
       if (this.captura()) break;
+
+      // 2) Nada direto: UC em lista suspensa, menus suspensos do cabeçalho, botão "trocar UC".
+      if (!acao) {
+        if (!ucSelecionada && (await this.ucEmListaSuspensa(reUc))) {
+          ucVista = ucSelecionada = true;
+          ultima = 'uc';
+          await this.rastreio.etapa(p, 'uc_na_lista');
+          continue;
+        }
+        const s2 = await this.esperarVisivel(
+          SELETORES.faturas.menusSuspensos.map((n, i) => () => (suspensosUsados.has(i) ? nunca() : this.clicavel(n))),
+          0,
+        );
+        if (s2) acao = { tipo: 'suspenso', ...s2 };
+        else if (!trocarUsado) {
+          const t = await this.esperarVisivel([() => this.clicavel(SELETORES.ucs.trocar)], 0);
+          if (t) acao = { tipo: 'trocar', ...t };
+        }
+      }
       if (!acao) break;
-      if (acao.tipo === 'sem') {
-        await this.rastreio.etapa(p, 'sem_fatura');
-        return this.falha('sem_fatura', 'Portal informa que não há fatura disponível para a UC.', 'faturas');
+      ultima = acao.tipo;
+
+      switch (acao.tipo) {
+        case 'sem':
+          await this.rastreio.etapa(p, 'sem_fatura');
+          return this.falha('sem_fatura', 'Portal informa que não há fatura disponível para a UC.', 'faturas');
+        case 'uc':
+          cliquesUc++;
+          await this.clicarEAguardar(acao.loc);
+          ucSelecionada = true;
+          await this.rastreio.etapa(p, 'uc_selecionada');
+          break;
+        case 'menu':
+          menusUsados.add(acao.i);
+          await this.clicarEAguardar(acao.loc);
+          await this.rastreio.etapa(p, 'servico_faturas');
+          break;
+        case 'suspenso':
+          suspensosUsados.add(acao.i);
+          this.log('abrindo menu do topo para procurar a 2ª via');
+          await acao.loc.click().catch(() => {});
+          await this.pausa(800);
+          await this.rastreio.etapa(p, `menu_${acao.i + 1}`);
+          break;
+        case 'trocar':
+          trocarUsado = true;
+          await this.clicarEAguardar(acao.loc);
+          break;
+        case 'baixar': {
+          const antes = p.url();
+          await acao.loc.click().catch(() => {});
+          const fimPdf = Date.now() + 30_000;
+          while (Date.now() < fimPdf && !this.captura() && p.url() === antes) await this.pausa(250);
+          if (!this.captura()) await this.assentar();
+          break;
+        }
       }
-      if (acao.tipo === 'menu') {
-        menusUsados.add(acao.i);
-        await this.clicarEAguardar(acao.loc);
-        await this.rastreio.etapa(p, 'faturas');
-        continue;
-      }
-      // Botão de baixar: espera o PDF; se o clique só navegou, volta a procurar.
-      const antes = p.url();
-      await acao.loc.click().catch(() => {});
-      const fimPdf = Date.now() + 30_000;
-      while (Date.now() < fimPdf && !this.captura() && p.url() === antes) await this.pausa(250);
-      if (!this.captura()) await this.assentar();
     }
 
     if (!this.captura()) {
-      await this.esperarPessoa('clique para baixar a fatura mais recente na janela', async () => Boolean(this.captura()));
+      await this.rastreio.etapa(p, 'robo_sem_caminho');
+      await this.esperarPessoa(
+        `na janela do Chrome, vá até a 2ª via da UC ${digitos} e clique para baixar/ver a fatura mais recente (se não achar, aperte Enter para encerrar)`,
+        async () => Boolean(this.captura()),
+        { enterConfirma: true },
+      );
     }
     const cap = this.captura();
     await this.rastreio.etapa(p, cap ? 'pdf_capturado' : 'pdf_nao_capturado');
-    if (!cap) return this.falha('layout', 'Não encontrei o botão da fatura ou o PDF não foi capturado.', 'baixar');
+    if (!cap) {
+      if (!ucVista && !ucSelecionada) {
+        const dica = digitos.length === 7 || digitos.length === 8 ? ' (7 ou 8 dígitos é o formato do "código débito em conta", não da UC: confira na fatura)' : '';
+        return this.falha('uc_nao_encontrada', `UC ${digitos} não aparece para este login${dica}.`, 'uc');
+      }
+      return this.falha('layout', 'Não encontrei o caminho até a fatura ou o PDF não foi capturado.', 'baixar');
+    }
     this.log(`PDF capturado (${cap.origem}, ${cap.bytes.length} bytes).`);
     return { status: 'ok', detalhe: `PDF capturado via ${cap.origem}.`, etapa: 'baixar', pdf: cap.bytes, origemPdf: cap.origem };
   }

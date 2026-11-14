@@ -167,6 +167,14 @@ export class RoboProprioProvedor implements Provedor {
         medidor: leitura.fatura.medidor ?? null,
         bandeira: leitura.fatura.bandeira ?? null,
       };
+      // Trava: o PDF tem de ser da UC pedida (evita gravar a fatura de outra UC do mesmo login).
+      if (leitura.verificacoes.find((v) => v.nome === 'uc_confere')?.ok === false) {
+        return this.registrar({
+          resultado: this.resultado(611, `PDF baixado não é da UC ${unidade.uc} (o PDF é da UC ${leitura.fatura.uc || '?'}).`, inicio, extra),
+          fatura: null,
+          pdf: r.pdf,
+        });
+      }
       if (!leitura.utilizavel) {
         return this.registrar({ resultado: this.resultado(611, 'PDF baixado, mas faltam campos mínimos (UC, mês ou valor).', inicio, extra), fatura: null, pdf: r.pdf });
       }

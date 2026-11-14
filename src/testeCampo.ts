@@ -211,8 +211,10 @@ export async function testeCampoRobo(entrada: EntradaTesteRobo, opcoes: OpcoesRo
         }
         const leitura = await lerPdfESalvar(r.pdf, dir, `uc-${apenasDigitos(uc)}`, uc);
         imprimirLeitura(leitura, `UC ${uc} (PDF via ${r.origemPdf}, ${r.pdf.length} bytes)`);
-        resumo.push({ uc, status: 'ok', origemPdf: r.origemPdf, utilizavel: leitura.utilizavel, faltando: leitura.cobertura.filter((c) => c.valor === null).map((c) => c.campo) });
-        ok &&= leitura.utilizavel;
+        const ucConfere = leitura.verificacoes.find((v) => v.nome === 'uc_confere')?.ok !== false;
+        if (!ucConfere) out(`  ATENÇÃO: o PDF baixado NÃO é da UC ${uc}. Em produção ele seria rejeitado.`);
+        resumo.push({ uc, status: 'ok', origemPdf: r.origemPdf, ucConfere, utilizavel: leitura.utilizavel, faltando: leitura.cobertura.filter((c) => c.valor === null).map((c) => c.campo) });
+        ok &&= leitura.utilizavel && ucConfere;
       }
     }
   } finally {
