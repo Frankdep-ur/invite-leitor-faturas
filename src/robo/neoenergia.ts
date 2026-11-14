@@ -235,6 +235,23 @@ export class RoboNeoenergia {
       .first();
   }
 
+  /**
+   * Serviço pelo nome: botão/link/item de menu OU qualquer elemento com esse texto (cartões de
+   * "Acesso rápido aos serviços" são <div> clicáveis). Ignora textos que não são a 2ª via
+   * (ex.: "Fatura Digital", "Débito automático").
+   */
+  private servico(nome: RegExp): Locator {
+    const p = this.p;
+    return p
+      .getByRole('button', { name: nome })
+      .or(p.getByRole('link', { name: nome }))
+      .or(p.getByRole('menuitem', { name: nome }))
+      .or(p.getByText(nome))
+      .filter({ visible: true })
+      .filter({ hasNotText: SELETORES.faturas.naoEhFatura })
+      .first();
+  }
+
   /** Espera o primeiro candidato ficar visível (consulta repetida até o prazo). */
   private async esperarVisivel(candidatos: Array<() => Locator>, ms: number): Promise<{ loc: Locator; i: number } | null> {
     const fim = Date.now() + ms;
@@ -638,7 +655,7 @@ export class RoboNeoenergia {
           acao = { tipo: 'baixar', ...b };
           break;
         }
-        const m = await this.esperarVisivel(SELETORES.faturas.menu.map((n, i) => () => (menusUsados.has(i) ? nunca() : this.clicavel(n))), 0);
+        const m = await this.esperarVisivel(SELETORES.faturas.menu.map((n, i) => () => (menusUsados.has(i) ? nunca() : this.servico(n))), 0);
         if (m) {
           acao = { tipo: 'menu', ...m };
           break;

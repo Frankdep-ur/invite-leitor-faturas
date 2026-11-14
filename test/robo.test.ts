@@ -95,7 +95,7 @@ describe('Robô contra portal simulado', () => {
     expect(r.status).toBe('ok');
   });
 
-  it('fluxo do PORTAL REAL: abre o menu "Para a Unidade Consumidora", entra na 2ª via, escolhe a UC e baixa', async () => {
+  it('fluxo do PORTAL REAL: acha a 2ª via no cartão de serviços, escolhe a UC e baixa', async () => {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'real-'));
     const robo = new RoboNeoenergia({
       baseUrl: BASE_MOCK, headless: true, timeoutMs: 6_000, rastreioDir: dir,
@@ -107,7 +107,8 @@ describe('Robô contra portal simulado', () => {
       const r = await robo.baixarFatura('123.456.789-01');
       expect(r.status).toBe('ok');
       const etapas = robo.rastreio.etapas;
-      expect(etapas).toContain('menu_1');
+      // A 2ª via está num cartão do meio da página (não nos menus do topo), e não pode
+      // confundir com o cartão "Fatura Digital" (que fala em "faturas por e-mail").
       expect(etapas).toContain('servico_faturas');
       expect(etapas).toContain('uc_selecionada');
       // Não pode ter caído na armadilha do "Início" (que reabre o login).

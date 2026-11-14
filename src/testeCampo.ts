@@ -102,6 +102,7 @@ export async function imprimirCaminho(dirExecucao: string): Promise<boolean> {
   }
   const m9 = (v: unknown) => String(v ?? '').replace(/\d/g, '9');
   out('\n=== CAMINHO NO PORTAL (copie e mande este bloco; números trocados por 9) ===');
+  let textoAnterior = '';
   for (const a of arquivos) {
     let mapa: Record<string, unknown>;
     try {
@@ -117,6 +118,11 @@ export async function imprimirCaminho(dirExecucao: string): Promise<boolean> {
     if (titulos) out(`  títulos: ${titulos}`);
     if (campos.length) out(`  campos: ${campos.slice(0, 8).map((c) => `<${c.tag} ${m9(c.formcontrolname || c.name || c.id || c.placeholder || c.rotulo || '')}>`).join(' ')}`);
     out(`  botões/links: ${botoes || '(nenhum)'}`);
+    const clicaveis = (Array.isArray(mapa.clicaveis) ? mapa.clicaveis : []).slice(0, 30).map((b) => `"${m9(b)}"`).join(' · ');
+    if (clicaveis) out(`  cartões clicáveis: ${clicaveis}`);
+    const texto = m9(mapa.texto).slice(0, 700);
+    if (texto && texto !== textoAnterior) out(`  texto da página: ${texto}`);
+    textoAnterior = texto || textoAnterior;
   }
   try {
     const rede = JSON.parse(await fs.readFile(path.join(dir, 'rede.json'), 'utf8')) as Array<{ metodo: string; rota: string; status: number; tipo: string }>;

@@ -154,7 +154,11 @@ function renderReal(h, logado) {
       + ' <button id="m-uc" aria-haspopup="true">Para a Unidade Consumidora<i>expand_more</i></button>'
       + ' <button>Fale Conosco<i>expand_more</i></button></nav><div id="menu"></div></header>'
     : '<header><nav><button>Início</button> <button>Para Você<i>expand_more</i></button> <button class="btn-login">LOGIN</button></nav></header>';
-  let corpo = '<h2>Mais por você</h2><p>Acesso rápido aos principais serviços</p><h3>Destaques</h3>';
+  // Como no portal real: os serviços do "Acesso rápido" são <div> clicáveis (não botões/links).
+  let corpo = '<h2>Mais por você</h2><p>Acesso rápido aos principais serviços</p>'
+    + (logado ? '<div class="cards"><div class="card" style="cursor:pointer" onclick="ir(\\'#/home/servicos/fatura-digital\\')"><span>Fatura Digital</span><p>Receba suas faturas por e-mail</p></div>'
+      + '<div class="card" style="cursor:pointer" onclick="ir(\\'#/home/servicos/segunda-via\\')"><span>2ª via de conta</span></div></div>' : '')
+    + '<h3>Destaques</h3>';
   const m = h.match(/^#\\/home\\/servicos\\/segunda-via(?:\\/(\\d+))?/);
   if (logado && m && !m[1]) {
     corpo = '<h2>2ª via de conta</h2><p>Selecione o imóvel</p>'
@@ -170,10 +174,10 @@ function renderReal(h, logado) {
   if (inicio) inicio.addEventListener('click', abrirDialogoReal); // armadilha vista no portal real
   const menu = document.getElementById('menu');
   const mUc = document.getElementById('m-uc');
-  if (mUc) mUc.addEventListener('click', () => { menu.innerHTML = '<a role="menuitem" href="#/home/servicos/fatura-digital">Fatura Digital</a>'
-    + ' <a role="menuitem" href="#/home/servicos/segunda-via">2ª via de conta</a> <a role="menuitem" href="#/home/servicos/religacao">Religação</a>'; });
+  if (mUc) mUc.addEventListener('click', () => { menu.innerHTML = '<a role="menuitem" href="#/home/servicos/troca-titularidade">Troca de Titularidade</a>'
+    + ' <a role="menuitem" href="#/home/servicos/ligacao-nova">Ligação Nova</a>'; });
   const mVoce = document.getElementById('m-voce');
-  if (mVoce) mVoce.addEventListener('click', () => { menu.innerHTML = '<a role="menuitem" href="#/home/servicos/tarifa-social">Tarifa Social</a>'; });
+  if (mVoce) mVoce.addEventListener('click', () => { menu.innerHTML = '<a role="menuitem" href="#/home/servicos/atualizacao-cadastral">Atualização Cadastral</a>'; });
   const b1 = document.getElementById('b1');
   if (b1) b1.addEventListener('click', async () => { const r = await fetch('/api/ucs/' + m[1] + '/faturas/1/pdf'); await r.json(); });
 }

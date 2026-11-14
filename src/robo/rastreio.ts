@@ -90,6 +90,15 @@ export class Rastreio {
             noDialogo: Boolean(e.closest('mat-dialog-container, [role=dialog]')),
           })),
           botoes: [...new Set([...document.querySelectorAll('button,[role=button],a,[role=menuitem],[role=tab]')].filter(visivel).map(txt).filter(Boolean))].slice(0, 60),
+          // Cartões/itens clicáveis que não são botão nem link (ex.: "Acesso rápido aos serviços").
+          clicaveis: [
+            ...new Set(
+              [...document.querySelectorAll('div,li,span,p,h3,h4,h5,mat-card,section,article')]
+                .filter((e) => visivel(e) && getComputedStyle(e).cursor === 'pointer' && !e.closest('button,a,[role=button]'))
+                .map(txt)
+                .filter((t) => t && t.length <= 60),
+            ),
+          ].slice(0, 40),
           classesBotoes: [...new Set([...document.querySelectorAll('button')].filter(visivel).map((b) => (b.className || '').toString().trim()).filter(Boolean))].slice(0, 20),
           mensagens: [...document.querySelectorAll('[role=alert],mat-error,.mat-mdc-snack-bar-container,.alert,.error,.erro,.toast')]
             .filter(visivel)

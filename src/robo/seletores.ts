@@ -92,7 +92,16 @@ export const SELETORES = {
 
   faturas: {
     /** Itens de menu que levam às faturas, em ordem de preferência. */
-    menu: [/2[ªa°]?\s*via/i, /segunda\s+via/i, /minhas\s+faturas|faturas/i, /contas|d[ée]bitos/i, /hist[óo]rico/i],
+    menu: [
+      /2[ªa°]?\s*via/i,
+      /segunda\s+via/i,
+      /d[ée]bitos?\s+(e|ou)\s+2|consultar\s+d[ée]bitos|d[ée]bitos\s+em\s+aberto/i,
+      /minhas\s+faturas|faturas\s+e\s+pagamentos|faturas/i,
+      /minhas\s+contas|contas\s+e\s+pagamentos|pagamentos/i,
+      /hist[óo]rico\s+de\s+(faturas|contas|pagamentos)/i,
+    ],
+    /** Textos que parecem serviço de fatura mas NÃO são (não clicar). */
+    naoEhFatura: /fatura\s+digital|d[ée]bito\s+autom[áa]tico|por\s+e-?mail|cadastr/i,
     /** Botões/links de baixar a fatura (o 1º visível costuma ser a mais recente). "2ª via" é menu, não está aqui. */
     baixar: [/baixar/i, /download/i, /\bpdf\b/i, /visualizar/i, /imprimir/i],
     semFatura: /n[ãa]o (h[áa]|existem|foram encontrad)[^.]{0,30}(fatura|conta|d[ée]bito)|nenhuma fatura/i,
