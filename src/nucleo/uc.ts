@@ -34,8 +34,9 @@ export function normalizarUc(bruta: string): UcNormalizada {
 }
 
 /**
- * Elektro: a UC tem 11 ou 12 dígitos; 7 ou 8 dígitos é o formato do "código débito em conta"
- * (outro número da mesma fatura, que o Admin guarda no lugar da UC em vários clientes).
+ * Elektro: o número atual da UC tem 11 ou 12 dígitos. 7 ou 8 dígitos é o "Código do Cliente"
+ * antigo (na fatura: "código débito em conta") — ainda identifica a mesma UC e o portal aceita na
+ * pesquisa, mas o número novo é o preferido no cadastro.
  */
 export function pareceCodigoDebitoElektro(valor: string): boolean {
   const n = apenasDigitos(valor).length;

@@ -3,7 +3,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { chromium } from 'playwright';
-import { RoboNeoenergia, extrairPdfDeCorpo, type OpcoesRobo } from '../src/robo/neoenergia.js';
+import { RoboNeoenergia, extrairPdfDeCorpo, regexNumeroInteiro, type OpcoesRobo } from '../src/robo/neoenergia.js';
 import { extrairTextoPdf } from '../src/leitor/pdfTexto.js';
 import { lerFaturaNeoenergia } from '../src/leitor/faturaNeoenergia.js';
 import { htmlFatura } from './faturaMock.js';
@@ -47,6 +47,21 @@ describe('extrairPdfDeCorpo', () => {
     expect(extrairPdfDeCorpo(Buffer.from(JSON.stringify({ fileData: b64 })))).toEqual(pdf);
     expect(extrairPdfDeCorpo(Buffer.from(`"data:application/pdf;base64,${b64}"`))).toEqual(pdf);
     expect(extrairPdfDeCorpo(Buffer.from('{"ok":true}'))).toBeNull();
+  });
+});
+
+describe('regexNumeroInteiro (achar a UC na tela)', () => {
+  it.each([
+    ['7654321', '987.654.321-09', false], // número dentro de outro número: NÃO pode casar
+    ['7654321', 'Código do Cliente 7654321', true],
+    ['49907704575', '499.077.045-75', true],
+    ['49907704575', '0499.077.045-75', true], // zero à esquerda
+    ['49907704575', '1499.077.045-75', false],
+    ['250800304505', '2.508.003.045-05', true],
+    ['12345678', 'Instalação 1234.5678', true],
+    ['12345678', '12345678901', false],
+  ])('%s em %s => %s', (digitos, texto, esperado) => {
+    expect(regexNumeroInteiro(digitos).test(texto)).toBe(esperado);
   });
 });
 
@@ -95,7 +110,7 @@ describe('Robô contra portal simulado', () => {
     expect(r.status).toBe('ok');
   });
 
-  it('fluxo do PORTAL REAL: acha a 2ª via no cartão de serviços, escolhe a UC e baixa', async () => {
+  async function rodarReal(uc: string) {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'real-'));
     const robo = new RoboNeoenergia({
       baseUrl: BASE_MOCK, headless: true, timeoutMs: 6_000, rastreioDir: dir,
@@ -104,25 +119,31 @@ describe('Robô contra portal simulado', () => {
     await robo.abrir();
     try {
       expect(await robo.login(CRED)).toBeNull();
-      const r = await robo.baixarFatura('123.456.789-01');
-      expect(r.status).toBe('ok');
-      const etapas = robo.rastreio.etapas;
-      // A 2ª via está num cartão do meio da página (não nos menus do topo), e não pode
-      // confundir com o cartão "Fatura Digital" (que fala em "faturas por e-mail").
-      expect(etapas).toContain('servico_faturas');
-      expect(etapas).toContain('uc_selecionada');
-      // Não pode ter caído na armadilha do "Início" (que reabre o login).
-      const mapas = await Promise.all((await fs.readdir(dir)).filter((a) => a.endsWith('.json') && !a.startsWith('rede')).map((a) => fs.readFile(path.join(dir, a), 'utf8')));
-      expect(mapas.filter((m) => m.includes('"dialogoAberto": true')).length).toBeLessThanOrEqual(2); // só as telas do login
+      const r = await robo.baixarFatura(uc);
+      return { r, etapas: [...robo.rastreio.etapas] };
     } finally {
       await robo.fechar();
       await fs.rm(dir, { recursive: true, force: true });
     }
+  }
+
+  it('PORTAL REAL (caminho do vídeo): lista de UCs → UC → Faturas e 2ª via → Mais opções → Download → BAIXAR', async () => {
+    const { r, etapas } = await rodarReal('123.456.789-01');
+    expect(r.status).toBe('ok');
+    for (const e of ['meus_imoveis', 'uc_selecionada', 'servico_faturas', 'opcoes_fatura', 'janela_baixar', 'pdf_capturado']) expect(etapas).toContain(e);
+    expect(etapas).not.toContain('inicio_busca'); // não precisou da busca genérica
   });
 
-  it('fluxo do PORTAL REAL com UC que não é do login: uc_nao_encontrada (e não baixa a de outra UC)', async () => {
-    const r = await rodar('resposta', '55555555555', {}, CRED, { estiloReal: true });
+  it('PORTAL REAL com o código ANTIGO do cliente (7 dígitos): acha pela pesquisa e baixa', async () => {
+    const { r, etapas } = await rodarReal('7654321');
+    expect(r.status).toBe('ok');
+    expect(etapas).toContain('pesquisa_uc');
+  });
+
+  it('PORTAL REAL com UC que não é do login: uc_nao_encontrada, sem baixar nada', async () => {
+    const { r } = await rodarReal('55555555555');
     expect(r.status).toBe('uc_nao_encontrada');
+    expect(r.pdf).toBeUndefined();
   });
 
   it('página de bloqueio do CDN: bloqueado, sem tentar contornar', async () => {

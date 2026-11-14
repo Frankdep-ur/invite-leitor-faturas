@@ -58,11 +58,16 @@ describe('Layout real Elektro (DANFELEKB V1.00)', () => {
     expect(gd.every((c) => c.valor === null && c.ausenteNaFatura)).toBe(true);
   });
 
-  it('acusa quando o cadastro usa o "código débito em conta" no lugar da UC', () => {
+  it('cadastro com o código antigo do cliente ("código débito em conta") confere, com aviso para atualizar', () => {
     const r = lerFaturaNeoenergia(textoDanfeElektroB(), { ucEsperada: '11223344' });
+    expect(r.verificacoes.find((v) => v.nome === 'uc_confere')!.ok).toBe(true);
+    expect(r.alertas.join(' ')).toMatch(/código antigo do cliente.*atualizar o cadastro/);
+    expect(r.fatura.uc).toBe('987654321012'); // a UC registrada é o número atual
+  });
+
+  it('UC de OUTRA unidade não confere', () => {
+    const r = lerFaturaNeoenergia(textoDanfeElektroB(), { ucEsperada: '55667788' });
     expect(r.verificacoes.find((v) => v.nome === 'uc_confere')!.ok).toBe(false);
-    expect(r.alertas.join(' ')).toMatch(/Código débito em conta.*corrigir o cadastro/);
-    expect(r.fatura.uc).toBe('987654321012'); // a UC certa continua sendo a lida
   });
 
   it('pega total adulterado pelo boleto', () => {
@@ -125,9 +130,10 @@ describe('Layout real Elektro — variante baixa renda (fatura real de out/2026)
     expect(l.fatura.classificacao).toMatch(/BAIXA RENDA/);
   });
 
-  it('cadastro com o código débito de 7 dígitos no lugar da UC é acusado', () => {
+  it('código antigo de 7 dígitos no cadastro confere (mesma UC), com aviso', () => {
     const r = lerFaturaNeoenergia(textoDanfeElektroBaixaRenda(), { ucEsperada: '7654321' });
-    expect(r.alertas.join(' ')).toMatch(/Código débito em conta/);
+    expect(r.verificacoes.find((v) => v.nome === 'uc_confere')!.ok).toBe(true);
+    expect(r.alertas.join(' ')).toMatch(/código antigo do cliente/);
     expect(r.fatura.uc).toBe('12345678901');
   });
 });

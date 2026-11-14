@@ -363,13 +363,13 @@ export async function configurarTesteCampo(arquivo: string): Promise<void> {
   while (!senha) senha = await perguntar('Senha da Agência Virtual (não aparece na tela): ', true);
   const uf = ((await perguntar('Estado [SP]: ')) || 'SP').toUpperCase();
   out('\nUC = "Número da Unidade Consumidora", no topo da fatura (ex.: 1.234.567.890-12 ou 123.456.789-01).');
-  out('NÃO use o "Código débito em conta" (7 ou 8 dígitos, no canhoto). Pode pôr várias, separadas por vírgula.');
+  out('O código antigo do cliente (7 ou 8 dígitos, "código débito em conta") também funciona. Pode pôr várias, separadas por vírgula.');
   let ucs = '';
   while (!ucs) {
     ucs = await perguntar('UC(s): ');
     for (const u of ucs.split(/[,;\s]+/).filter(Boolean)) {
       for (const a of normalizarUc(u).alertas) out(`  AVISO ${u}: ${a}`);
-      if (pareceCodigoDebitoElektro(u)) out(`  AVISO ${u}: 7 ou 8 dígitos é o formato do "código débito em conta", não da UC (11 ou 12 dígitos). Confira na fatura.`);
+      if (pareceCodigoDebitoElektro(u)) out(`  AVISO ${u}: 7 ou 8 dígitos é o código antigo do cliente. Funciona (o robô pesquisa por ele), mas prefira o "Número da Unidade Consumidora" da fatura (11 ou 12 dígitos).`);
     }
   }
 

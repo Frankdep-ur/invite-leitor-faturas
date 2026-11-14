@@ -146,7 +146,11 @@ function abrirDialogoReal() {
     else d.querySelector('#msg').textContent = 'Usuário ou senha inválidos.';
   });
 }
-const UCS_REAIS = { '12345678901': '123.456.789-01', '98765432109': '987.654.321-09' };
+const UCS_REAIS = {
+  '12345678901': { fmt: '123.456.789-01', codigo: '7654321', end: 'Rua Exemplo, 1' },
+  '98765432109': { fmt: '987.654.321-09', codigo: '1234567', end: 'Rua Exemplo, 2' },
+};
+function so(d) { return String(d || '').replace(/\\D/g, ''); }
 function renderReal(h, logado) {
   const topo = logado
     ? '<header><nav><span>Olá, Cliente</span> <button id="inicio">Início</button>'
@@ -154,18 +158,24 @@ function renderReal(h, logado) {
       + ' <button id="m-uc" aria-haspopup="true">Para a Unidade Consumidora<i>expand_more</i></button>'
       + ' <button>Fale Conosco<i>expand_more</i></button></nav><div id="menu"></div></header>'
     : '<header><nav><button>Início</button> <button>Para Você<i>expand_more</i></button> <button class="btn-login">LOGIN</button></nav></header>';
-  // Como no portal real: os serviços do "Acesso rápido" são <div> clicáveis (não botões/links).
-  let corpo = '<h2>Mais por você</h2><p>Acesso rápido aos principais serviços</p>'
-    + (logado ? '<div class="cards"><div class="card" style="cursor:pointer" onclick="ir(\\'#/home/servicos/fatura-digital\\')"><span>Fatura Digital</span><p>Receba suas faturas por e-mail</p></div>'
-      + '<div class="card" style="cursor:pointer" onclick="ir(\\'#/home/servicos/segunda-via\\')"><span>2ª via de conta</span></div></div>' : '')
-    + '<h3>Destaques</h3>';
-  const m = h.match(/^#\\/home\\/servicos\\/segunda-via(?:\\/(\\d+))?/);
-  if (logado && m && !m[1]) {
-    corpo = '<h2>2ª via de conta</h2><p>Selecione o imóvel</p>'
-      + Object.entries(UCS_REAIS).map(([d, f]) => '<button onclick="ir(\\'#/home/servicos/segunda-via/' + d + '\\')">UC ' + f + ' · Rua Exemplo</button>').join(' ');
-  } else if (logado && m && m[1]) {
-    corpo = '<h2>2ª via de conta</h2><p>Imóvel: UC ' + (UCS_REAIS[m[1]] || m[1]) + '</p>'
-      + '<table><tr><td>10/2026</td><td>R$ 97,32</td><td><button id="b1">Baixar</button></td></tr></table>';
+  let corpo = '<h2>Mais por você</h2><p>Acesso rápido aos principais serviços</p><h3>Destaques</h3>';
+  const sel = sessionStorage.getItem('ucSel');
+  if (logado && h.startsWith('#/home/meus-imoveis')) {
+    const filtro = sessionStorage.getItem('filtro') || '';
+    const lista = Object.entries(UCS_REAIS).filter(([d, u]) => !filtro || d === filtro || u.codigo === filtro);
+    corpo = '<h2>Unidades Consumidoras</h2><p>Escolha abaixo a unidade consumidora que deseja consultar</p>'
+      + '<input id="busca" placeholder="Insira um Código do Cliente ou Número da UC"> <span id="pesq" style="cursor:pointer">Pesquisar</span>'
+      + lista.map(([d, u]) => '<div class="card-uc" style="cursor:pointer" data-uc="' + d + '"><small>NÚMERO DA UNIDADE CONSUMIDORA</small><b>' + u.fmt + '</b><span>' + u.end + '</span><span>LIGADA</span></div>').join('')
+      + '<button>VOLTAR</button>';
+  } else if (logado && h === '#/home' && sel) {
+    const u = UCS_REAIS[sel];
+    corpo = '<h2>Unidade Consumidora</h2><p>Número da Unidade Consumidora ' + u.fmt + '</p><p>Código do Cliente ' + u.codigo + '</p>'
+      + '<button>Minhas Unidades</button><h3>Serviços mais utilizados</h3>'
+      + '<div class="svc" style="cursor:pointer" id="svc-fat">Faturas e 2ª via de faturas</div>'
+      + '<div class="svc" style="cursor:pointer">Débito automático</div><div class="svc" style="cursor:pointer">Fatura digital</div>';
+  } else if (logado && h.startsWith('#/home/servicos/consultar-debitos') && sel) {
+    corpo = '<h2>Consultar débitos e emitir 2ª via de faturas</h2><h3>Última Fatura</h3><p>Total a pagar R$ 98,86</p>'
+      + '<button>PIX</button> <button id="mais">MAIS OPÇÕES +</button><div id="menu-op"></div><h3>LISTA DE FATURAS</h3>';
   }
   app.innerHTML = topo + '<main>' + corpo + '</main>';
   const btnLogin = document.querySelector('.btn-login');
@@ -174,12 +184,37 @@ function renderReal(h, logado) {
   if (inicio) inicio.addEventListener('click', abrirDialogoReal); // armadilha vista no portal real
   const menu = document.getElementById('menu');
   const mUc = document.getElementById('m-uc');
-  if (mUc) mUc.addEventListener('click', () => { menu.innerHTML = '<a role="menuitem" href="#/home/servicos/troca-titularidade">Troca de Titularidade</a>'
-    + ' <a role="menuitem" href="#/home/servicos/ligacao-nova">Ligação Nova</a>'; });
+  if (mUc) mUc.addEventListener('click', () => { menu.innerHTML = '<a role="menuitem" href="#/home/servicos/troca-titularidade">Troca de Titularidade</a> <a role="menuitem" href="#/home/servicos/ligacao-nova">Ligação Nova</a>'; });
   const mVoce = document.getElementById('m-voce');
   if (mVoce) mVoce.addEventListener('click', () => { menu.innerHTML = '<a role="menuitem" href="#/home/servicos/atualizacao-cadastral">Atualização Cadastral</a>'; });
-  const b1 = document.getElementById('b1');
-  if (b1) b1.addEventListener('click', async () => { const r = await fetch('/api/ucs/' + m[1] + '/faturas/1/pdf'); await r.json(); });
+  // Lista de UCs: pesquisa por número novo ou código antigo; clique no cartão abre a UC.
+  const pesq = document.getElementById('pesq');
+  if (pesq) pesq.addEventListener('click', () => { sessionStorage.setItem('filtro', so(document.getElementById('busca').value)); render(); });
+  document.querySelectorAll('.card-uc').forEach((c) => c.addEventListener('click', () => {
+    sessionStorage.setItem('ucSel', c.getAttribute('data-uc')); sessionStorage.removeItem('filtro');
+    if (location.hash === '#/home') render(); else ir('#/home');
+  }));
+  const svc = document.getElementById('svc-fat');
+  if (svc) svc.addEventListener('click', () => ir('#/home/servicos/consultar-debitos'));
+  // MAIS OPÇÕES -> Opções de fatura -> Download -> janela "Carregando" -> BAIXAR
+  const mais = document.getElementById('mais');
+  if (mais) mais.addEventListener('click', () => {
+    const m = document.getElementById('menu-op');
+    m.innerHTML = '<div role="menuitem">Opções de pagamento</div><div role="menuitem" id="op-fat">Opções de fatura</div><div id="sub"></div>';
+    document.getElementById('op-fat').addEventListener('click', () => {
+      document.getElementById('sub').innerHTML = '<div role="menuitem" id="dl">Download</div><div role="menuitem">Visualizar</div><div role="menuitem">Enviar por e-mail</div>';
+      document.getElementById('dl').addEventListener('click', () => {
+        const d = document.createElement('div'); d.setAttribute('role', 'dialog'); d.innerHTML = '<p>Carregando</p>';
+        document.body.appendChild(d);
+        setTimeout(() => {
+          d.innerHTML = '<button id="baixar">BAIXAR</button> <button>Cancelar</button>';
+          document.getElementById('baixar').addEventListener('click', async () => {
+            const r = await fetch('/api/ucs/' + sessionStorage.getItem('ucSel') + '/faturas/1/pdf'); await r.json(); d.remove();
+          });
+        }, 600);
+      });
+    });
+  });
 }
 window.addEventListener('hashchange', render); render();
 </script></body></html>`;

@@ -112,4 +112,26 @@ export const SELETORES = {
      */
     menusSuspensos: [/unidade\s+consumidora/i, /para\s+voc[êe]/i, /servi[çc]os/i, /minha\s+conta|meu\s+perfil/i],
   },
+  /**
+   * CAMINHO CALIBRADO com vídeo do portal real (14/11/2026), cliente com 1 UC:
+   *   #/home/meus-imoveis ("Unidades Consumidoras": cartões + pesquisa por código)
+   *   → cartão da UC → página da UC ("Serviços mais utilizados", "Código do Cliente")
+   *   → "Faturas e 2ª via de faturas" → #/home/servicos/consultar-debitos
+   *   → "MAIS OPÇÕES +" → "Opções de fatura" → "Download" → janela "Carregando" → "BAIXAR".
+   */
+  caminho: {
+    rotaUcs: '/#/home/meus-imoveis',
+    tituloUcs: /^\s*unidades\s+consumidoras\s*$/i,
+    buscaUc: /c[óo]digo\s+do\s+cliente|n[úu]mero\s+da\s+(unidade|uc)/i,
+    pesquisar: /^\s*pesquisar\s*$/i,
+    rotuloCartaoUc: /^\s*n[úu]mero\s+da\s+unidade\s+consumidora\s*$/i,
+    telaUc: /servi[çc]os\s+mais\s+utilizados|c[óo]digo\s+do\s+cliente/i,
+    servicoFaturas: /faturas\s+e\s+2[ªa°]?\s*via/i,
+    rotaFaturas: '/#/home/servicos/consultar-debitos',
+    tituloFaturas: /consultar\s+d[ée]bitos\s+e\s+emitir\s+2[ªa°]?\s*via/i,
+    maisOpcoes: /mais\s+op[çc][õo]es/i,
+    opcoesFatura: /op[çc][õo]es\s+de\s+fatura/i,
+    download: /^\s*download\s*$/i,
+    baixarModal: /^\s*baixar\s*$/i,
+  },
 } as const;

@@ -67,6 +67,15 @@ type Captura = { bytes: Buffer; origem: 'download' | 'resposta' | 'janela' };
 
 const BASE_PADRAO = 'https://agenciavirtual.neoenergia.com';
 
+/**
+ * Regex que acha o número INTEIRO (com ou sem pontos/traço e zeros à esquerda), sem casar
+ * dentro de outro número: "7654321" NÃO pode casar em "987.654.321-09".
+ */
+export function regexNumeroInteiro(digitos: string): RegExp {
+  const corpo = digitos.replace(/^0+/, '').split('').join('[.\\-\\s/]?');
+  return new RegExp(`(?<!\\d)(?<!\\d[.\\-/])(?:0[.\\-\\s/]?)*${corpo}(?!\\d)(?![.\\-/]\\d)`);
+}
+
 /** Procura um PDF numa resposta: bytes %PDF, data URL ou JSON com base64 "JVBER...". */
 export function extrairPdfDeCorpo(corpo: Buffer): Buffer | null {
   if (corpo.length >= 5 && corpo.subarray(0, 5).toString('latin1') === '%PDF-') return corpo;
@@ -599,27 +608,133 @@ export class RoboNeoenergia {
   // -------------------------------------------------------------------------
   // UC e fatura
   // -------------------------------------------------------------------------
+  private async irParaRota(rota: string): Promise<void> {
+    await this.p.goto(`${this.baseUrl}${rota}`, { waitUntil: 'domcontentloaded' }).catch(() => {});
+    await this.assentar();
+  }
+
+  /** A tela mostra um número (UC nova ou código do cliente) igual a `digitos`? Compara número a número. */
+  private async telaMostraNumero(digitos: string): Promise<boolean> {
+    const texto = await this.textoPagina();
+    return (texto.match(/\d[\d.\-\/]*\d/g) ?? []).some((n) => apenasDigitos(n) === digitos);
+  }
+
+  /**
+   * Caminho calibrado com o portal real (ver SELETORES.caminho). Devolve 'ok' com o PDF
+   * capturado, um ResultadoRobo de falha definitiva, ou null se a tela não for a esperada
+   * (aí o robô usa a busca genérica).
+   */
+  private async caminhoPortal(digitos: string, reUc: RegExp): Promise<ResultadoRobo | 'ok' | null> {
+    const p = this.p;
+    const C = SELETORES.caminho;
+    const urlAntes = p.url();
+    await this.irParaRota(C.rotaUcs);
+    const lista = await this.esperarVisivel([() => p.getByText(C.tituloUcs).first(), () => p.getByPlaceholder(C.buscaUc).first()], 8_000);
+    if (!lista) {
+      // Não é o portal calibrado: volta para onde estava e deixa a busca genérica seguir.
+      await p.goto(urlAntes, { waitUntil: 'domcontentloaded' }).catch(() => {});
+      await this.assentar();
+      return null;
+    }
+    await this.rastreio.etapa(p, 'meus_imoveis');
+
+    // 1) UC na lista; senão pesquisa (aceita o número novo da UC e o código antigo do cliente).
+    let alvo = await this.esperarVisivel([() => p.getByText(reUc).first()], 3_000);
+    if (!alvo) {
+      const busca = await this.esperarVisivel([() => p.getByPlaceholder(C.buscaUc).first()], 1_000);
+      if (busca) {
+        await busca.loc.fill(digitos);
+        const pesquisar = await this.esperarVisivel([() => this.clicavel(C.pesquisar), () => p.getByText(C.pesquisar).first()], 1_500);
+        if (pesquisar) await pesquisar.loc.click().catch(() => {});
+        else await busca.loc.press('Enter').catch(() => {});
+        await this.assentar();
+        await this.rastreio.etapa(p, 'pesquisa_uc');
+        alvo = await this.esperarVisivel([() => p.getByText(reUc).first()], 5_000);
+        if (!alvo) {
+          // Pesquisa pelo código antigo: o cartão mostra o número NOVO. Só aceita se houver UM resultado.
+          const rotulos = p.getByText(C.rotuloCartaoUc).filter({ visible: true });
+          if ((await rotulos.count().catch(() => 0)) === 1) alvo = { loc: rotulos.first(), i: 0 };
+        }
+      }
+    }
+    if (!alvo) {
+      await this.rastreio.etapa(p, 'uc_nao_encontrada');
+      return this.falha('uc_nao_encontrada', `UC ${digitos} não aparece na lista de unidades deste login (nem pela pesquisa).`, 'uc');
+    }
+    await this.clicarEAguardar(alvo.loc);
+
+    // 2) Página da UC: confere que é a UC pedida antes de baixar qualquer coisa.
+    const telaUc = await this.esperarVisivel([() => p.getByText(C.telaUc).first()], this.timeoutMs);
+    if (!telaUc) return null;
+    if (!(await this.telaMostraNumero(digitos))) {
+      await this.rastreio.etapa(p, 'uc_diferente');
+      return this.falha('uc_nao_encontrada', `A tela da unidade aberta não mostra o número ${digitos}; não vamos baixar fatura de outra UC.`, 'uc');
+    }
+    await this.rastreio.etapa(p, 'uc_selecionada');
+
+    // 3) Serviço "Faturas e 2ª via de faturas".
+    const servico = await this.esperarVisivel([() => this.servico(C.servicoFaturas)], 5_000);
+    if (servico) await this.clicarEAguardar(servico.loc);
+    else await this.irParaRota(C.rotaFaturas);
+    if (!(await this.esperarVisivel([() => p.getByText(C.tituloFaturas).first()], this.timeoutMs))) return null;
+    await this.rastreio.etapa(p, 'servico_faturas');
+    if (SELETORES.faturas.semFatura.test(await this.textoPagina())) {
+      await this.rastreio.etapa(p, 'sem_fatura');
+      return this.falha('sem_fatura', 'Portal informa que não há fatura disponível para a UC.', 'faturas');
+    }
+
+    // 4) MAIS OPÇÕES → Opções de fatura → Download → (Carregando) → BAIXAR.
+    const mais = await this.esperarVisivel([() => this.clicavel(C.maisOpcoes), () => p.getByText(C.maisOpcoes).first()], 5_000);
+    if (!mais) return null;
+    await mais.loc.click().catch(() => {});
+    const opcoes = await this.esperarVisivel([() => this.clicavel(C.opcoesFatura), () => p.getByText(C.opcoesFatura).first()], 5_000);
+    if (!opcoes) return null;
+    await opcoes.loc.hover().catch(() => {});
+    await opcoes.loc.click().catch(() => {});
+    const download = await this.esperarVisivel([() => this.clicavel(C.download), () => p.getByText(C.download).first()], 5_000);
+    if (!download) return null;
+    await this.rastreio.etapa(p, 'opcoes_fatura');
+    await download.loc.click().catch(() => {});
+    let clicouBaixar = false;
+    const fim = Date.now() + 60_000;
+    while (Date.now() < fim && !this.captura()) {
+      if (!clicouBaixar) {
+        const baixar = await this.esperarVisivel([() => this.clicavel(C.baixarModal)], 0);
+        if (baixar) {
+          await this.rastreio.etapa(p, 'janela_baixar');
+          await baixar.loc.click().catch(() => {});
+          clicouBaixar = true;
+        }
+      }
+      await this.pausa(300);
+    }
+    return this.captura() ? 'ok' : null;
+  }
+
   async baixarFatura(uc: string): Promise<ResultadoRobo> {
     if (!this.logado) return this.falha('layout', 'baixarFatura chamado sem login.', 'fatura');
     const p = this.p;
     this.capturado = null;
     const digitos = apenasDigitos(uc);
-    const reUc = new RegExp(digitos.split('').join('[.\\-\\s/]?'));
+    const reUc = regexNumeroInteiro(digitos);
     const textoUc = () => p.getByText(reUc).first();
     const nunca = () => p.locator('#__nunca__');
 
-    // A partir da 2ª UC da mesma sessão, volta ao começo (a tela ainda é a da UC anterior).
+    const ucAnteriorNaSessao = this.ucsNaSessao > 0;
+    this.ucsNaSessao++;
+
+    // Caminho calibrado com o portal real; se a tela não for a esperada, cai na busca genérica.
+    const calibrado = await this.caminhoPortal(digitos, reUc);
+    if (calibrado && calibrado !== 'ok') return calibrado;
+
+    // Busca genérica, a partir da 2ª UC da sessão: volta ao começo (a tela ainda é a da UC anterior).
     // Logo depois do login NÃO navega: no portal real, clicar em "Início" reabria o login.
-    if (this.ucsNaSessao > 0 && !(await this.esperarVisivel([textoUc], 2_000))) {
+    if (!calibrado && ucAnteriorNaSessao && !(await this.esperarVisivel([textoUc], 500))) {
       const inicio = await this.esperarVisivel(SELETORES.ucs.inicio.map((n) => () => this.clicavel(n)), 1_000);
       if (inicio) await this.clicarEAguardar(inicio.loc);
-      else {
-        await p.goto(`${this.baseUrl}${SELETORES.ucs.rotaInicio}`, { waitUntil: 'domcontentloaded' }).catch(() => {});
-        await this.assentar();
-      }
+      else await this.irParaRota(SELETORES.ucs.rotaInicio);
     }
-    this.ucsNaSessao++;
-    await this.rastreio.etapa(p, 'inicio_busca');
+    if (!calibrado) await this.rastreio.etapa(p, 'inicio_busca');
 
     type Acao =
       | { tipo: 'sem' }
@@ -734,7 +849,7 @@ export class RoboNeoenergia {
     await this.rastreio.etapa(p, cap ? 'pdf_capturado' : 'pdf_nao_capturado');
     if (!cap) {
       if (!ucVista && !ucSelecionada) {
-        const dica = digitos.length === 7 || digitos.length === 8 ? ' (7 ou 8 dígitos é o formato do "código débito em conta", não da UC: confira na fatura)' : '';
+        const dica = digitos.length === 7 || digitos.length === 8 ? ' (7 ou 8 dígitos é o código antigo do cliente; confira o número novo da UC na fatura)' : '';
         return this.falha('uc_nao_encontrada', `UC ${digitos} não aparece para este login${dica}.`, 'uc');
       }
       return this.falha('layout', 'Não encontrei o caminho até a fatura ou o PDF não foi capturado.', 'baixar');

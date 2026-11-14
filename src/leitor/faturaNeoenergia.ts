@@ -390,10 +390,10 @@ export function lerFaturaNeoenergia(texto: string, opts: { ucEsperada?: string }
   if (opts.ucEsperada) {
     const esperada = apenasDigitos(opts.ucEsperada);
     if (layout?.codigoDebito && esperada === layout.codigoDebito) {
-      alertas.push(
-        `A UC cadastrada (${esperada}) é o "Código débito em conta" desta fatura, não a UC. A UC é ${uc ?? '(não lida)'}: corrigir o cadastro.`,
-      );
-      verificacoes.push({ nome: 'uc_confere', ok: false, detalhe: `Cadastro usa o código débito em conta (${esperada}) no lugar da UC ${uc ?? ''}.` });
+      // "Código débito em conta" = "Código do Cliente" antigo da MESMA unidade (o portal avisa:
+      // "O código do cliente agora se chama Número da Unidade Consumidora"). Confere, mas avisamos.
+      verificacoes.push({ nome: 'uc_confere', ok: true, detalhe: `Cadastro usa o código antigo do cliente (${esperada}), que é desta UC (${uc ?? '?'}).` });
+      alertas.push(`Cadastro usa o código antigo do cliente (${esperada}). O número atual da UC é ${uc ?? '(não lido)'}: vale atualizar o cadastro.`);
     } else {
       const presente = esperada.length >= 6 && apenasDigitos(t).includes(esperada);
       verificacoes.push({

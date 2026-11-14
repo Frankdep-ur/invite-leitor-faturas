@@ -99,7 +99,7 @@ export interface FaturaEstruturada {
   /** Opcionais (leitor próprio). */
   leituraAnteriorData?: string | null;
   classificacao?: string | null;
-  /** "Código débito em conta" (Elektro). NÃO é a UC — o Admin às vezes guarda este no lugar da UC. */
+  /** "Código débito em conta" (Elektro) = "Código do Cliente" antigo da UC (o portal ainda aceita na pesquisa). */
   codigoDebitoConta?: string | null;
   medidor?: Record<string, string | number | null> | null;
   bandeira?: string | null;
