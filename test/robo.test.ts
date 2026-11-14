@@ -65,7 +65,7 @@ describe('regexNumeroInteiro (achar a UC na tela)', () => {
   });
 });
 
-describe('Robô contra portal simulado', () => {
+describe('Robô contra portal simulado', { timeout: 75_000 }, () => {
   it('caminho feliz: login + UF + UC + 2ª via + PDF da resposta, e o leitor lê a fatura', async () => {
     const r = await rodar('resposta', '1234.5678');
     expect(r.status).toBe('ok');
@@ -110,7 +110,7 @@ describe('Robô contra portal simulado', () => {
     expect(r.status).toBe('ok');
   });
 
-  async function rodarReal(uc: string, extra: OpcoesPortal = {}) {
+  async function rodarReal(uc: string, extra: OpcoesPortal = {}, cred = CRED) {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'real-'));
     const robo = new RoboNeoenergia({
       baseUrl: BASE_MOCK, headless: true, timeoutMs: 6_000, rastreioDir: dir,
@@ -118,7 +118,7 @@ describe('Robô contra portal simulado', () => {
     });
     await robo.abrir();
     try {
-      expect(await robo.login(CRED)).toBeNull();
+      expect(await robo.login(cred)).toBeNull();
       const r = await robo.baixarFatura(uc);
       return { r, etapas: [...robo.rastreio.etapas] };
     } finally {
@@ -146,6 +146,41 @@ describe('Robô contra portal simulado', () => {
     expect(r.status).toBe('ok');
     expect(etapas).toContain('pesquisa_uc');
   });
+
+  it('PORTAL REAL exigindo REGIÃO: escolhe "São Paulo" no topo antes do login e baixa', async () => {
+    const contador = { logins: 0 };
+    const { r, etapas } = await rodarReal('123.456.789-01', { exigeRegiao: true, contador });
+    expect(r.status).toBe('ok');
+    expect(etapas.indexOf('regiao_escolhida')).toBeGreaterThanOrEqual(0);
+    expect(etapas.indexOf('regiao_escolhida')).toBeLessThan(etapas.indexOf('login_formulario'));
+    expect(etapas).not.toContain('voltou_ao_login');
+    expect(contador.logins).toBe(1);
+  });
+
+  it('PORTAL REAL com a região numa JANELA (lista suspensa + Confirmar): escolhe e baixa', async () => {
+    const { r, etapas } = await rodarReal('123.456.789-01', { exigeRegiao: true, regiaoEmJanela: true });
+    expect(r.status).toBe('ok');
+    expect(etapas).toContain('regiao_escolhida');
+    expect(etapas).not.toContain('voltou_ao_login');
+  });
+
+  it('PORTAL REAL com a região já salva no navegador: não mexe no seletor', async () => {
+    const { r, etapas } = await rodarReal('123.456.789-01', { exigeRegiao: true, regiaoInicial: 'São Paulo' });
+    expect(r.status).toBe('ok');
+    expect(etapas).toContain('regiao_ja');
+    expect(etapas).not.toContain('regiao_escolhida');
+  });
+
+  it('PORTAL REAL sem a região da credencial: o portal volta ao login e o robô para SEM redigitar a senha', async () => {
+    const contador = { logins: 0 };
+    const { r, etapas } = await rodarReal('123.456.789-01', { exigeRegiao: true, contador }, { ...CRED, uf: 'RN' });
+    expect(r.status).toBe('layout');
+    expect(r.detalhe).toMatch(/voltou para a tela de login/);
+    expect(r.detalhe).toMatch(/NÃO foi digitada de novo/);
+    expect(etapas).toContain('regiao_nao_encontrada');
+    expect(etapas).toContain('voltou_ao_login');
+    expect(contador.logins).toBe(1);
+  }, 90_000);
 
   it('PORTAL REAL com UC que não é do login: uc_nao_encontrada, sem baixar nada', async () => {
     const { r } = await rodarReal('55555555555');

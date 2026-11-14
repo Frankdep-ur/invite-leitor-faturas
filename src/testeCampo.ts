@@ -88,8 +88,22 @@ export function imprimirMapaDaTela(mapa: Record<string, unknown> | null): void {
   if (lista(mapa.titulos).length) out(`  títulos: ${lista(mapa.titulos).map((t) => `"${mascarar(t)}"`).join(' · ')}`);
   if (lista(mapa.mensagens).length) out(`  mensagens: ${lista(mapa.mensagens).map((t) => `"${mascarar(t)}"`).join(' · ')}`);
   if (lista(mapa.iframes).filter(Boolean).length) out(`  iframes: ${lista(mapa.iframes).filter(Boolean).join(' | ')}`);
+  const arm = descreverArmazenamento(mapa.armazenamento);
+  if (arm) out(`  salvo no navegador: ${arm}`);
   out(`  texto: ${String(mapa.texto ?? '').slice(0, 500)}`);
   out('--- fim (mande um print desta parte para calibrar o robô) ---');
+}
+
+/** Chaves que o portal salvou no navegador (só nomes; valores apenas de região/estado). */
+function descreverArmazenamento(a: unknown): string {
+  if (!a || typeof a !== 'object') return '';
+  const { local, sessao, regiao } = a as { local?: string[]; sessao?: string[]; regiao?: Record<string, string> };
+  const partes: string[] = [];
+  if (local?.length) partes.push(`local=[${local.join(', ')}]`);
+  if (sessao?.length) partes.push(`sessão=[${sessao.join(', ')}]`);
+  const r = Object.entries(regiao ?? {});
+  if (r.length) partes.push(`região: ${r.map(([k, v]) => `${k}="${v}"`).join(' ')}`);
+  return partes.join(' | ').replace(/\d/g, '9');
 }
 
 /** Resumo do rastreio de uma execução: telas por onde passou (inclusive as manuais) e rotas de rede. */
@@ -104,6 +118,7 @@ export async function imprimirCaminho(dirExecucao: string): Promise<boolean> {
   const m9 = (v: unknown) => String(v ?? '').replace(/\d/g, '9');
   out('\n=== CAMINHO NO PORTAL (copie e mande este bloco; números trocados por 9) ===');
   let textoAnterior = '';
+  let armAnterior = '';
   for (const a of arquivos) {
     let mapa: Record<string, unknown>;
     try {
@@ -121,6 +136,9 @@ export async function imprimirCaminho(dirExecucao: string): Promise<boolean> {
     out(`  botões/links: ${botoes || '(nenhum)'}`);
     const clicaveis = (Array.isArray(mapa.clicaveis) ? mapa.clicaveis : []).slice(0, 30).map((b) => `"${m9(b)}"`).join(' · ');
     if (clicaveis) out(`  cartões clicáveis: ${clicaveis}`);
+    const arm = descreverArmazenamento(mapa.armazenamento);
+    if (arm && arm !== armAnterior) out(`  salvo no navegador: ${arm}`);
+    armAnterior = arm || armAnterior;
     const texto = m9(mapa.texto).slice(0, 700);
     if (texto && texto !== textoAnterior) out(`  texto da página: ${texto}`);
     textoAnterior = texto || textoAnterior;

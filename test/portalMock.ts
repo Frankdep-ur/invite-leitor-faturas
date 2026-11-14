@@ -32,6 +32,18 @@ export interface OpcoesPortal {
   estiloReal?: boolean;
   /** Lista de UCs demora a carregar ("Aguarde um instante..."), como no portal real. */
   listaLenta?: boolean;
+  /**
+   * Região no topo (teste de campo 14/11): navegador limpo mostra "Neoenergia ▾" (há também um
+   * menu institucional "Neoenergia ▾"). Sem região escolhida, o login funciona ("Olá, <nome>"),
+   * mas as páginas da conta devolvem para #/login com a janela de login aberta.
+   */
+  exigeRegiao?: boolean;
+  /** A região se escolhe numa JANELA com lista suspensa (<select>) e botão "Confirmar". */
+  regiaoEmJanela?: boolean;
+  /** Região já salva no navegador (como no Chrome de quem já usa o portal). */
+  regiaoInicial?: string;
+  /** Conta quantas vezes o botão ENTRAR foi enviado (o robô não pode redigitar a senha). */
+  contador?: { logins: number };
 }
 
 function htmlApp(modo: ModoPortal, pdfB64: string, opts: OpcoesPortal = {}): string {
@@ -44,6 +56,15 @@ const DIALOGO = ${opts.loginEmDialogo ? 'true' : 'false'};
 const COMBO = ${opts.ucEmCombobox ? 'true' : 'false'};
 const REAL = ${opts.estiloReal ? 'true' : 'false'};
 const LENTA = ${opts.listaLenta ? 'true' : 'false'};
+const EXIGE_REGIAO = ${opts.exigeRegiao ? 'true' : 'false'};
+const REGIAO_JANELA = ${opts.regiaoEmJanela ? 'true' : 'false'};
+const REGIOES = ['Bahia', 'Brasília', 'Mato Grosso do Sul', 'Pernambuco', 'São Paulo'];
+if (${JSON.stringify(opts.regiaoInicial ?? '')} && !localStorage.getItem('regiaoSel')) localStorage.setItem('regiaoSel', ${JSON.stringify(opts.regiaoInicial ?? '')});
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  const m = document.getElementById('menu'); if (m) m.innerHTML = '';
+  if (REAL) document.querySelectorAll('mat-dialog-container, #dlg-reg').forEach((d) => d.remove());
+});
 const app = document.getElementById('app');
 function ir(h){ location.hash = h; }
 function render(){
@@ -145,6 +166,7 @@ function abrirDialogoReal() {
   const valida = () => { b.disabled = !(u.value.replace(/\\D/g,'').length >= 11 && s2.value.length > 0); };
   [u, s2].forEach(x => x.addEventListener('input', valida));
   b.addEventListener('click', () => {
+    fetch('/conta/login', { method: 'POST' }).catch(() => {});
     if (s2.value === 'senha-certa') { localStorage.setItem('tokenNeSe', 'tok'); d.remove(); render(); }
     else d.querySelector('#msg').textContent = 'Usuário ou senha inválidos.';
   });
@@ -155,12 +177,22 @@ const UCS_REAIS = {
 };
 function so(d) { return String(d || '').replace(/\\D/g, ''); }
 function renderReal(h, logado) {
+  const regiao = localStorage.getItem('regiaoSel');
+  let voltaLogin = false;
+  if (EXIGE_REGIAO && h.startsWith('#/home') && (!logado || !regiao)) {
+    // Como no portal real sem região: devolve para o login (o nome do cliente continua no topo).
+    history.replaceState(null, '', '#/login'); h = '#/login'; voltaLogin = true;
+  }
+  const topoRegiao = EXIGE_REGIAO
+    ? '<button id="m-inst" aria-haspopup="true">Neoenergia<i>expand_more</i></button> '
+      + '<button id="m-reg" aria-haspopup="true">' + (regiao || 'Neoenergia') + '<i>expand_more</i></button> '
+    : '';
   const topo = logado
-    ? '<header><nav><span>Olá, Cliente</span> <button id="inicio">Início</button>'
+    ? '<header><nav>' + topoRegiao + '<span>Olá, Cliente</span> <button id="inicio">Início</button>'
       + ' <button id="m-voce" aria-haspopup="true">Para Você<i>expand_more</i></button>'
       + ' <button id="m-uc" aria-haspopup="true">Para a Unidade Consumidora<i>expand_more</i></button>'
       + ' <button>Fale Conosco<i>expand_more</i></button></nav><div id="menu"></div></header>'
-    : '<header><nav><button>Início</button> <button>Para Você<i>expand_more</i></button> <button class="btn-login">LOGIN</button></nav></header>';
+    : '<header><nav>' + topoRegiao + '<button>Início</button> <button>Para Você<i>expand_more</i></button> <button class="btn-login">LOGIN</button></nav><div id="menu"></div></header>';
   let corpo = '<h2>Mais por você</h2><p>Acesso rápido aos principais serviços</p><h3>Destaques</h3>';
   const sel = sessionStorage.getItem('ucSel');
   if (logado && h.startsWith('#/home/meus-imoveis') && LENTA && !window.__listaPronta) {
@@ -191,6 +223,24 @@ function renderReal(h, logado) {
   const menu = document.getElementById('menu');
   const mUc = document.getElementById('m-uc');
   if (mUc) mUc.addEventListener('click', () => { menu.innerHTML = '<a role="menuitem" href="#/home/servicos/troca-titularidade">Troca de Titularidade</a> <a role="menuitem" href="#/home/servicos/ligacao-nova">Ligação Nova</a>'; });
+  const mInst = document.getElementById('m-inst');
+  if (mInst) mInst.addEventListener('click', () => { menu.innerHTML = '<a role="menuitem" href="#/institucional">Sobre a Neoenergia</a> <a role="menuitem" href="#/investidores">Investidores</a>'; });
+  const mReg = document.getElementById('m-reg');
+  if (mReg && REGIAO_JANELA) mReg.addEventListener('click', () => {
+    const d = document.createElement('div'); d.id = 'dlg-reg'; d.setAttribute('role', 'dialog');
+    d.innerHTML = '<h2>Selecione sua região</h2><select id="sel-reg"><option value="">Escolha</option>'
+      + REGIOES.map((r) => '<option>' + r + '</option>').join('') + '</select> <button id="ok-reg">CONFIRMAR</button>';
+    document.body.appendChild(d);
+    document.getElementById('ok-reg').addEventListener('click', () => {
+      const v = document.getElementById('sel-reg').value; if (!v) return;
+      localStorage.setItem('regiaoSel', v); d.remove(); render();
+    });
+  });
+  else if (mReg) mReg.addEventListener('click', () => {
+    menu.innerHTML = '<p>Selecione sua região</p>' + REGIOES.map((r) => '<button role="menuitem" class="op-reg">' + r + '</button>').join(' ');
+    menu.querySelectorAll('.op-reg').forEach((b) => b.addEventListener('click', () => { localStorage.setItem('regiaoSel', b.textContent); render(); }));
+  });
+  if (voltaLogin) abrirDialogoReal();
   const mVoce = document.getElementById('m-voce');
   if (mVoce) mVoce.addEventListener('click', () => { menu.innerHTML = '<a role="menuitem" href="#/home/servicos/atualizacao-cadastral">Atualização Cadastral</a>'; });
   // Lista de UCs: pesquisa por número novo ou código antigo; clique no cartão abre a UC.
@@ -237,6 +287,10 @@ export async function instalarPortal(ctx: BrowserContext, modo: ModoPortal, pdf:
     const url = new URL(route.request().url());
     if (modo === 'bloqueado') {
       return route.fulfill({ status: 403, contentType: 'text/html', body: ACCESS_DENIED });
+    }
+    if (url.pathname === '/conta/login') {
+      if (opts.contador) opts.contador.logins++;
+      return route.fulfill({ status: 200, contentType: 'text/plain', body: 'ok' });
     }
     if (url.pathname.startsWith('/api/')) {
       const uc = url.pathname.match(/\/ucs\/(\d+)\//)?.[1] ?? '';

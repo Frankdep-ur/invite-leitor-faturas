@@ -96,6 +96,22 @@ npm run teste-campo -- robo
 - Se a senha for recusada, ele **para e não tenta de novo** (para não
   bloquear a conta da cliente).
 
+O caminho que o robô faz (cada passo aparece no Terminal como `etapa: ...`):
+
+1. `regiao_escolhida` (ou `regiao_ja`): escolhe **"São Paulo"** no topo do
+   portal, no seletor que no navegador limpo aparece como "Neoenergia ▾".
+   Sem região, o portal mostra "Olá, <nome>", mas devolve as páginas da conta
+   para o login.
+2. `login_formulario` → `login_preenchido` → `logado`.
+3. `meus_imoveis` (lista "Unidades Consumidoras") → `uc_selecionada` →
+   `servico_faturas` → `opcoes_fatura` → `janela_baixar` → `pdf_capturado`.
+
+Se aparecer `voltou_ao_login`, o portal pediu login de novo. O robô **não
+digita a senha outra vez**. Se o Terminal pedir `>>> AÇÃO MANUAL`, faça na
+janela do Chrome: escolha "São Paulo" no topo, entre com CPF e senha você
+mesmo, abra "Unidades Consumidoras" e aperte **Enter** no Terminal. O robô
+grava cada tela por onde você passa e segue dali.
+
 ## Parte 4 — Ler o resultado
 
 No fim, o Terminal mostra para cada UC:

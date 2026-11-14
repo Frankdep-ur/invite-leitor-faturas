@@ -107,6 +107,26 @@ export class Rastreio {
           titulos: [...document.querySelectorAll('h1,h2,h3,h4')].filter(visivel).map(txt).filter(Boolean).slice(0, 20),
           dialogoAberto: Boolean(document.querySelector('mat-dialog-container, [role=dialog]')),
           iframes: [...document.querySelectorAll('iframe')].map((f) => (f.getAttribute('src') || '').split('?')[0]).slice(0, 10),
+          // Só os NOMES das chaves salvas pelo portal; valor apenas das que parecem região/estado
+          // (curtas, com dígitos trocados por 9). Tokens e dados pessoais nunca entram.
+          armazenamento: (() => {
+            const chaves = (s: Storage) => {
+              try {
+                return Object.keys(s).slice(0, 40);
+              } catch {
+                return [] as string[];
+              }
+            };
+            const regiao: Record<string, string> = {};
+            for (const [nome, s] of [['local', window.localStorage], ['sessao', window.sessionStorage]] as const) {
+              for (const k of chaves(s)) {
+                if (!/regi|estado|^uf|uf$|distrib|empresa|concession|state|region/i.test(k) || /token|auth|senha|pass/i.test(k)) continue;
+                const v = s.getItem(k) || '';
+                regiao[`${nome}:${k}`] = v.length <= 80 ? v.replace(/\d/g, '9') : `(${v.length} caracteres)`;
+              }
+            }
+            return { local: chaves(window.localStorage), sessao: chaves(window.sessionStorage), regiao };
+          })(),
           texto: (document.body?.innerText || '').replace(/\s+/g, ' ').replace(/\d/g, '9').slice(0, 1200),
         };
       })

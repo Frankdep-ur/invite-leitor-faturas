@@ -37,6 +37,27 @@ export const SELETORES = {
       'select[name*="estado" i]',
     ],
     nomeUf: { SP: /s[ãa]o paulo|elektro/i, MS: /mato grosso do sul/i, BA: /bahia|coelba/i, PE: /pernambuco|celpe/i, RN: /rio grande do norte|cosern/i } as Record<string, RegExp>,
+    /**
+     * REGIÃO no cabeçalho (teste de campo 14/11): no Chrome de quem já usa o portal o topo mostra
+     * "São Paulo ▾"; no navegador limpo do robô mostrava "Neoenergia ▾" e as páginas da conta
+     * voltavam para o login. Antes do login o robô escolhe a região como uma pessoa faria.
+     * Botões que podem abrir a escolha de região (o texto do botão inteiro):
+     */
+    regiaoBotao:
+      /^\s*(neoenergia|regi[ãa]o|estado|distribuidora|(selecione|escolha)( (o|a|seu|sua))? (estado|regi[ãa]o|distribuidora)|s[ãa]o paulo|bahia|pernambuco|rio grande do norte|mato grosso do sul|distrito federal|bras[íi]lia)\s*(expand_more|arrow_drop_down|keyboard_arrow_down)?\s*$/i,
+    /** Nome do estado (opção da lista e, depois de escolhido, texto do botão do topo). */
+    regiaoUf: {
+      SP: 's[ãa]o\\s+paulo',
+      MS: 'mato\\s+grosso\\s+do\\s+sul',
+      BA: 'bahia',
+      PE: 'pernambuco',
+      RN: 'rio\\s+grande\\s+do\\s+norte',
+      DF: 'distrito\\s+federal|bras[íi]lia',
+    } as Record<string, string>,
+    /** Botão de confirmar, se a janela de região pedir. */
+    regiaoConfirmar: /^\s*(confirmar|ok|continuar|salvar|aplicar|acessar|selecionar|prosseguir)\s*$/i,
+    /** Nome da distribuidora, caso a lista venha assim (2ª tentativa). */
+    regiaoDistribuidora: { SP: 'elektro', MS: 'elektro', BA: 'coelba', PE: 'celpe', RN: 'cosern', DF: 'bras[íi]lia' } as Record<string, string>,
     usuario: [
       '#userId',
       'input[formcontrolname="userId"]',

@@ -103,6 +103,9 @@ export class RoboNeoenergia {
   logado = false;
   /** UCs já processadas nesta sessão (login). */
   private ucsNaSessao = 0;
+  /** Resultado da escolha de região no topo (null = ainda não tentou). */
+  regiao: 'ja' | 'escolhida' | 'nao_encontrada' | null = null;
+  private uf = 'SP';
 
   constructor(opts: OpcoesRobo = {}) {
     this.opts = opts;
@@ -162,6 +165,7 @@ export class RoboNeoenergia {
     this.page = undefined;
     this.logado = false;
     this.ucsNaSessao = 0;
+    this.regiao = null;
   }
 
   // -------------------------------------------------------------------------
@@ -467,6 +471,188 @@ export class RoboNeoenergia {
   }
 
   // -------------------------------------------------------------------------
+  // Região (estado/distribuidora) no cabeçalho
+  // -------------------------------------------------------------------------
+  /**
+   * Botão que mostra a região já escolhida ("São Paulo ▾"): no cabeçalho, ou em qualquer lugar
+   * desde que tenha a setinha / abra um menu. Um link "São Paulo" solto no rodapé não conta.
+   */
+  private indicadorRegiao(re: RegExp, reComSeta: RegExp): Locator {
+    const p = this.p;
+    const topo = p.locator('header, app-header, mat-toolbar, [class*="header" i], [class*="navbar" i], [class*="topo" i]');
+    return topo
+      .getByRole('button', { name: re })
+      .or(topo.getByRole('link', { name: re }))
+      .or(p.getByRole('button', { name: reComSeta }))
+      .or(p.getByRole('link', { name: reComSeta }))
+      .or(p.getByRole('combobox', { name: re }))
+      .or(p.locator('[aria-haspopup], mat-select').filter({ hasText: re }))
+      .filter({ visible: true })
+      .first();
+  }
+
+  /** A página saiu do domínio do portal (ex.: clicou num link institucional)? */
+  private foraDoPortal(): boolean {
+    try {
+      const dominio = (h: string) => h.split('.').slice(-2).join('.');
+      return dominio(new URL(this.p.url()).hostname) !== dominio(new URL(this.baseUrl).hostname);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Escolhe a região no cabeçalho, como uma pessoa faria: abre o seletor ("Neoenergia ▾") e
+   * clica no estado da credencial ("São Paulo" para Elektro SP). Primeiro tenta o nome do
+   * estado em todos os botões candidatos; só depois o nome da distribuidora.
+   */
+  async selecionarRegiao(ufBruta?: string | null): Promise<'ja' | 'escolhida' | 'nao_encontrada'> {
+    const p = this.p;
+    const uf = (ufBruta ?? 'SP').toUpperCase();
+    const fonteUf = SELETORES.login.regiaoUf[uf];
+    if (!fonteUf) {
+      this.log(`região: UF "${uf}" sem nome conhecido; seguindo sem escolher região`);
+      return (this.regiao = 'nao_encontrada');
+    }
+    const fonteDist = SELETORES.login.regiaoDistribuidora[uf];
+    const uf2 = '(\\s*[-–(]?\\s*[a-z]{2}\\)?)?\\s*';
+    const seta = '(expand_more|arrow_drop_down|keyboard_arrow_down)';
+    const reNome = (fonte: string) => new RegExp(`^\\s*(neoenergia\\s+)?(${fonte})${uf2}${seta}?\\s*$`, 'i');
+    const fonteIndicador = fonteDist ? `${fonteUf}|${fonteDist}` : fonteUf;
+    const reIndicador = reNome(fonteIndicador);
+    const reIndicadorSeta = new RegExp(`^\\s*(neoenergia\\s+)?(${fonteIndicador})${uf2}${seta}\\s*$`, 'i');
+    const indicador = () => this.indicadorRegiao(reIndicador, reIndicadorSeta);
+
+    // 1ª vez (tela recém-aberta): dá um tempo para o topo desenhar; depois, olha uma vez só.
+    const espera = this.regiao === null ? 1_500 : 0;
+    if (await this.esperarVisivel([indicador], espera)) {
+      this.log(`região: o topo já mostra ${uf}`);
+      await this.rastreio.etapa(p, 'regiao_ja');
+      return (this.regiao = 'ja');
+    }
+
+    // <option> nativo de <select> fica de fora: ele se escolhe com selectOption (escolherEmLista).
+    const naoNativo = p.locator(':not(option)');
+    const opcao = (re: RegExp) =>
+      p
+        .getByRole('menuitem', { name: re })
+        .or(p.getByRole('option', { name: re }).and(naoNativo))
+        .or(p.getByRole('radio', { name: re }))
+        .or(p.getByRole('link', { name: re }))
+        .or(p.getByRole('button', { name: re }))
+        .or(p.getByText(re))
+        .filter({ visible: true })
+        .first();
+    const botoes = p
+      .getByRole('button', { name: SELETORES.login.regiaoBotao })
+      .or(p.getByRole('link', { name: SELETORES.login.regiaoBotao }))
+      .or(p.getByRole('combobox', { name: SELETORES.login.regiaoBotao }))
+      .filter({ visible: true });
+
+    const opcaoAberta = (re: RegExp) =>
+      p.getByRole('menuitem', { name: re }).or(p.getByRole('option', { name: re }).and(naoNativo)).or(p.getByRole('radio', { name: re })).filter({ visible: true }).first();
+
+    const reUf = reNome(fonteUf);
+    const reDist = fonteDist ? reNome(fonteDist) : null;
+    let clicouOpcao = false;
+    // Clica na opção e confere se o topo passou a mostrar a região.
+    // Só dentro de uma janela: um "Continuar" solto na página pode ser outra coisa.
+    const confirmarNaJanela = () =>
+      p.locator(SELETORES.login.dialogo).getByRole('button', { name: SELETORES.login.regiaoConfirmar }).filter({ visible: true }).first();
+    const escolher = async (loc: Locator): Promise<boolean> => {
+      clicouOpcao = true;
+      const urlAntes = p.url();
+      await loc.click({ timeout: 3_000 }).catch(() => {});
+      await this.assentar();
+      if (this.foraDoPortal()) {
+        // Era um link para fora (ex.: site institucional), não a escolha de região.
+        await p.goto(urlAntes, { waitUntil: 'domcontentloaded' }).catch(() => {});
+        await this.assentar();
+        return false;
+      }
+      if (await this.esperarVisivel([indicador], 4_000)) return true;
+      // Algumas janelas de região pedem confirmação depois de escolher.
+      const confirmar = await this.esperarVisivel([confirmarNaJanela], 0);
+      if (!confirmar) return false;
+      await confirmar.loc.click({ timeout: 3_000 }).catch(() => {});
+      await this.assentar();
+      return Boolean(await this.esperarVisivel([indicador], 4_000));
+    };
+    /** A escolha abriu numa janela com lista suspensa (<select> ou mat-select)? Escolhe o estado nela. */
+    const escolherEmLista = async (): Promise<boolean> => {
+      const sel = p.locator(`${SELETORES.login.dialogo} select, header select`).filter({ visible: true }).first();
+      const temSelect = await sel.isVisible().catch(() => false);
+      const valor = !temSelect
+        ? null
+        : await sel
+            .evaluate(
+              (e, fonte) => {
+                const re = new RegExp(fonte, 'i');
+                return [...(e as HTMLSelectElement).options].find((o) => re.test(o.text.trim()))?.value ?? null;
+              },
+              reUf.source,
+              { timeout: 2_000 },
+            )
+            .catch(() => null);
+      if (valor !== null) {
+        await sel.selectOption(valor).catch(() => {});
+        clicouOpcao = true;
+        await this.assentar();
+        if (await this.esperarVisivel([indicador], 2_000)) return true;
+        const confirmar = await this.esperarVisivel([confirmarNaJanela], 0);
+        if (confirmar) {
+          await confirmar.loc.click({ timeout: 3_000 }).catch(() => {});
+          await this.assentar();
+        }
+        return Boolean(await this.esperarVisivel([indicador], 4_000));
+      }
+      const combo = p.locator(`${SELETORES.login.dialogo}`).locator('mat-select, [role=combobox]').filter({ visible: true }).first();
+      if (!(await combo.isVisible().catch(() => false))) return false;
+      await combo.click({ timeout: 3_000 }).catch(() => {});
+      const op = await this.esperarVisivel([() => opcaoAberta(reUf)], 1_500);
+      return op ? escolher(op.loc) : false;
+    };
+
+    // A escolha pode já estar aberta (janela "selecione sua região"); texto solto na página não conta.
+    let ok = false;
+    const aberta = await this.esperarVisivel([() => opcaoAberta(reUf)], 0);
+    if (aberta) ok = await escolher(aberta.loc);
+    // Senão, abre cada botão candidato do topo procurando o NOME DO ESTADO. Onde só aparecer o
+    // nome da distribuidora, guarda como reserva (pode ser um menu institucional).
+    let reserva = -1;
+    const total = ok ? 0 : Math.min(await botoes.count().catch(() => 0), 4);
+    for (let i = 0; !ok && i < total; i++) {
+      await botoes.nth(i).click({ timeout: 3_000 }).catch(() => {});
+      const alvo = await this.esperarVisivel([() => opcao(reUf)], 1_500);
+      if (alvo) {
+        ok = await escolher(alvo.loc);
+        continue;
+      }
+      if (await escolherEmLista()) {
+        ok = true;
+        break;
+      }
+      if (reserva < 0 && reDist && (await opcao(reDist).isVisible().catch(() => false))) reserva = i;
+      await p.keyboard.press('Escape').catch(() => {});
+      await this.pausa(300);
+    }
+    if (!ok && reserva >= 0 && reDist) {
+      await botoes.nth(reserva).click({ timeout: 3_000 }).catch(() => {});
+      const alvo = await this.esperarVisivel([() => opcao(reDist)], 1_500);
+      if (alvo) ok = await escolher(alvo.loc);
+    }
+    if (ok) {
+      this.log(`região: ${uf} escolhida no topo`);
+      await this.rastreio.etapa(p, 'regiao_escolhida');
+      return (this.regiao = 'escolhida');
+    }
+    if (clicouOpcao) this.log(`região: cliquei em ${uf}, mas o topo não confirmou a troca`);
+    this.log(`região: não achei onde escolher ${uf} no topo do portal; seguindo assim mesmo`);
+    await this.rastreio.etapa(p, 'regiao_nao_encontrada');
+    return (this.regiao = 'nao_encontrada');
+  }
+
+  // -------------------------------------------------------------------------
   // Login
   // -------------------------------------------------------------------------
   /** Retorna null se logou; senão o motivo da falha. */
@@ -482,6 +668,11 @@ export class RoboNeoenergia {
       await this.rastreio.etapa(p, 'bloqueado');
       return this.falha('bloqueado', 'O portal respondeu com página de bloqueio (Access Denied). Não insistir; rodar de uma máquina com internet comum.', 'login_abrir');
     }
+
+    // Região no topo ("São Paulo" para Elektro SP). Sem ela, o portal real mostrava "Olá, <nome>"
+    // mas devolvia as páginas da conta para o login.
+    this.uf = (c.uf ?? 'SP').toUpperCase();
+    await this.selecionarRegiao(this.uf);
 
     // Formulário: no portal real ele só aparece depois de clicar no botão de login do topo.
     let senhaLoc = await this.abrirFormularioLogin();
@@ -602,6 +793,8 @@ export class RoboNeoenergia {
     await this.assentar();
     await this.rastreio.etapa(p, this.logado ? 'logado' : 'login_sem_desfecho');
     if (!this.logado) return this.falha('layout', 'Não foi possível confirmar o login (nem erro, nem sessão).', 'login_desfecho');
+    // Se a região não foi escolhida antes do login, tenta de novo agora (alguns portais só mostram o seletor logado).
+    if (this.regiao === 'nao_encontrada') await this.selecionarRegiao(this.uf);
     return null;
   }
 
@@ -619,6 +812,53 @@ export class RoboNeoenergia {
     if (noPortal) await this.p.evaluate((h) => { if (location.hash !== h) location.hash = h; }, hash).catch(() => {});
     else await this.p.goto(`${this.baseUrl}${rota}`, { waitUntil: 'domcontentloaded' }).catch(() => {});
     await this.assentar();
+  }
+
+  /** Depois do login, a tela voltou a pedir CPF/senha (o portal não aceitou a sessão nas páginas da conta)? */
+  private async voltouAoLogin(): Promise<boolean> {
+    return Boolean(await this.esperarVisivel(this.candidatosSenha(), 0));
+  }
+
+  /**
+   * O portal devolveu para o login ao abrir uma página da conta. NUNCA redigita a senha (evita
+   * bloquear a conta do cliente). Tenta: (1) fechar a janela de login e escolher a região, se
+   * ainda não foi escolhida; (2) no modo assistido, pedir à pessoa para fazer o caminho na janela
+   * (o robô grava cada tela para calibrar). Devolve 'ok' se a lista de UCs apareceu.
+   */
+  private async tratarVoltaAoLogin(verLista: (ms: number) => Promise<unknown>): Promise<ResultadoRobo | 'ok'> {
+    const p = this.p;
+    await this.rastreio.etapa(p, 'voltou_ao_login');
+    if (this.regiao !== 'ja' && this.regiao !== 'escolhida') {
+      // Fecha a janela de login (sem preencher nada) para alcançar o topo.
+      await p.keyboard.press('Escape').catch(() => {});
+      await this.pausa(500);
+      if (await this.voltouAoLogin()) {
+        const fechar = p.locator(SELETORES.login.dialogo).getByRole('button', { name: /^\s*(close|fechar|×|x)\s*$/i }).first();
+        await fechar.click({ timeout: 2_000 }).catch(() => {});
+        await this.pausa(500);
+      }
+      if ((await this.selecionarRegiao(this.uf)) !== 'nao_encontrada') {
+        await this.irParaRota(SELETORES.caminho.rotaUcs);
+        if (await verLista(this.timeoutMs)) return 'ok';
+      }
+    }
+    const nomeRegiao = this.uf === 'SP' ? 'São Paulo' : this.uf;
+    const ok = await this.esperarPessoa(
+      `o portal voltou para a tela de login ao abrir a lista de unidades. Na janela do Chrome: (1) no topo, escolha a região "${nomeRegiao}" se houver essa opção; ` +
+        '(2) se pedir, entre com CPF e senha VOCÊ MESMO; (3) abra a lista "Unidades Consumidoras" (Minhas Unidades)',
+      async () => Boolean(await verLista(0)),
+      { enterConfirma: true },
+    );
+    if (ok && (await verLista(this.timeoutMs))) return 'ok';
+    const dica =
+      this.regiao === 'nao_encontrada'
+        ? ` Não achei onde escolher a região "${nomeRegiao}" no topo; mande o print da tela para calibrar.`
+        : ` A região estava selecionada (${this.regiao}).`;
+    return this.falha(
+      'layout',
+      `O portal voltou para a tela de login ao abrir a lista de unidades (mostra o nome do cliente, mas não abre as páginas da conta).${dica} A senha NÃO foi digitada de novo.`,
+      'voltou_ao_login',
+    );
   }
 
   /** A tela mostra um número (UC nova ou código do cliente) igual a `digitos`? Compara número a número. */
@@ -642,6 +882,11 @@ export class RoboNeoenergia {
     // 1ª tentativa: rota da lista de UCs (a lista carrega com "Aguarde um instante...": espera o prazo todo).
     await this.irParaRota(C.rotaUcs);
     let lista = await verLista(this.timeoutMs);
+    if (!lista && (await this.voltouAoLogin())) {
+      const r = await this.tratarVoltaAoLogin(verLista);
+      if (r !== 'ok') return r;
+      lista = await verLista(2_000);
+    }
     if (!lista) {
       await this.rastreio.etapa(p, 'meus_imoveis_nao_abriu');
       // 2ª tentativa: botão "Minhas Unidades"/"Meus imóveis", ou o menu do usuário ("Olá, Fulano").
@@ -658,6 +903,11 @@ export class RoboNeoenergia {
       if (atalho) {
         await this.clicarEAguardar(atalho.loc);
         lista = await verLista(this.timeoutMs);
+      }
+      if (!lista && (await this.voltouAoLogin())) {
+        const r = await this.tratarVoltaAoLogin(verLista);
+        if (r !== 'ok') return r;
+        lista = await verLista(2_000);
       }
     }
     if (!lista) {
