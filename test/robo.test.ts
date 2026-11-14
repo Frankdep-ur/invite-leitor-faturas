@@ -54,10 +54,10 @@ describe('regexNumeroInteiro (achar a UC na tela)', () => {
   it.each([
     ['7654321', '987.654.321-09', false], // número dentro de outro número: NÃO pode casar
     ['7654321', 'Código do Cliente 7654321', true],
-    ['49907704575', '499.077.045-75', true],
-    ['49907704575', '0499.077.045-75', true], // zero à esquerda
-    ['49907704575', '1499.077.045-75', false],
-    ['250800304505', '2.508.003.045-05', true],
+    ['12345678901', '123.456.789-01', true],
+    ['12345678901', '0123.456.789-01', true], // zero à esquerda
+    ['12345678901', '9123.456.789-01', false],
+    ['123456789012', '1.234.567.890-12', true],
     ['12345678', 'Instalação 1234.5678', true],
     ['12345678', '12345678901', false],
   ])('%s em %s => %s', (digitos, texto, esperado) => {
