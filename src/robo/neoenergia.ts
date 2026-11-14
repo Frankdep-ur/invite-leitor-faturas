@@ -127,6 +127,11 @@ export class RoboNeoenergia {
       acceptDownloads: true,
       viewport: { width: 1366, height: 900 },
     });
+    // O tsx/esbuild (usado pelo `npm run`) embrulha funções com __name(...). As funções que
+    // mandamos rodar DENTRO da página (page.evaluate) levam essa chamada junto e quebravam
+    // no navegador ("__name is not defined"). Definimos o auxiliar como identidade em todas
+    // as páginas do contexto. Em string de propósito, para o próprio esbuild não reescrever.
+    await this.ctx.addInitScript('globalThis.__name = globalThis.__name || function (f) { return f; };');
     if (this.opts.aoCriarContexto) await this.opts.aoCriarContexto(this.ctx);
     this.page = await this.ctx.newPage();
     this.page.setDefaultTimeout(15_000);

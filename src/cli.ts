@@ -8,7 +8,7 @@ import { Cofre, hashLogin } from './cofre.js';
 import { normalizarUc, apenasDigitos } from './nucleo/uc.js';
 import { criarLogger } from './log.js';
 import { ClienteInfosimples } from './infosimples/cliente.js';
-import { configurarTesteCampo, lerEntradaTeste, testeCampoInfosimples, testeCampoPdf, testeCampoRobo } from './testeCampo.js';
+import { configurarTesteCampo, lerEntradaTeste, testeCampoCaminho, testeCampoInfosimples, testeCampoPdf, testeCampoRobo } from './testeCampo.js';
 import type { Distribuidora, TipoLogin } from './dominio.js';
 
 /**
@@ -84,7 +84,9 @@ async function testeCampo(): Promise<void> {
   const base = path.resolve(raiz, 'dados');
 
   let r;
-  if (sub === 'pdf') {
+  if (sub === 'caminho') {
+    r = await testeCampoCaminho(base);
+  } else if (sub === 'pdf') {
     r = await testeCampoPdf(req('arquivo'), arg('uc'), base);
   } else if (sub === 'robo') {
     const entrada = lerEntradaTeste(process.env);
@@ -101,7 +103,7 @@ async function testeCampo(): Promise<void> {
     });
     r = await testeCampoInfosimples(lerEntradaTeste(process.env), cliente, base);
   } else {
-    throw new Error('Uso: teste-campo configurar | teste-campo robo | teste-campo pdf --arquivo X.pdf [--uc N] | teste-campo infosimples');
+    throw new Error('Uso: teste-campo configurar | teste-campo robo | teste-campo caminho | teste-campo pdf --arquivo X.pdf [--uc N] | teste-campo infosimples');
   }
   process.exitCode = r.ok ? 0 : 3;
 }

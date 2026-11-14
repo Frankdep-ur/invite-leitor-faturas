@@ -91,6 +91,60 @@ export function imprimirMapaDaTela(mapa: Record<string, unknown> | null): void {
   out('--- fim (mande um print desta parte para calibrar o robô) ---');
 }
 
+/** Resumo do rastreio de uma execução: telas por onde passou (inclusive as manuais) e rotas de rede. */
+export async function imprimirCaminho(dirExecucao: string): Promise<boolean> {
+  const dir = path.join(dirExecucao, 'rastreio');
+  let arquivos: string[];
+  try {
+    arquivos = (await fs.readdir(dir)).filter((a) => /^\d{2}-.*\.json$/.test(a)).sort();
+  } catch {
+    return false;
+  }
+  const m9 = (v: unknown) => String(v ?? '').replace(/\d/g, '9');
+  out('\n=== CAMINHO NO PORTAL (copie e mande este bloco; números trocados por 9) ===');
+  for (const a of arquivos) {
+    let mapa: Record<string, unknown>;
+    try {
+      mapa = JSON.parse(await fs.readFile(path.join(dir, a), 'utf8')) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    const etapa = a.replace(/\.json$/, '');
+    const botoes = (Array.isArray(mapa.botoes) ? mapa.botoes : []).slice(0, 30).map((b) => `"${m9(b)}"`).join(' · ');
+    const titulos = (Array.isArray(mapa.titulos) ? mapa.titulos : []).slice(0, 6).map((b) => `"${m9(b)}"`).join(' · ');
+    const campos = (Array.isArray(mapa.campos) ? mapa.campos : []) as Array<Record<string, unknown>>;
+    out(`\n[${etapa}] rota: ${m9(mapa.rota)} | diálogo: ${mapa.dialogoAberto ? 'sim' : 'não'}`);
+    if (titulos) out(`  títulos: ${titulos}`);
+    if (campos.length) out(`  campos: ${campos.slice(0, 8).map((c) => `<${c.tag} ${m9(c.formcontrolname || c.name || c.id || c.placeholder || c.rotulo || '')}>`).join(' ')}`);
+    out(`  botões/links: ${botoes || '(nenhum)'}`);
+  }
+  try {
+    const rede = JSON.parse(await fs.readFile(path.join(dir, 'rede.json'), 'utf8')) as Array<{ metodo: string; rota: string; status: number; tipo: string }>;
+    const relevantes = rede.filter((r) => /json|pdf|octet/i.test(r.tipo) || /pdf|fatura|segunda|via|boleto|uc|imove|instala/i.test(r.rota));
+    const unicas = [...new Map(relevantes.map((r) => [`${r.metodo} ${r.rota}`, r])).values()].slice(-40);
+    out(`\n[rede] ${unicas.length} rotas de dados (sem conteúdo):`);
+    for (const r of unicas) out(`  ${r.metodo} ${m9(r.rota)} -> ${r.status} ${r.tipo}`);
+  } catch {
+    /* sem rede.json */
+  }
+  out('\n=== fim do caminho ===');
+  return true;
+}
+
+export async function testeCampoCaminho(baseDados: string): Promise<SaidaTeste> {
+  const raiz = path.resolve(baseDados, 'teste-campo');
+  const execucoes = (await fs.readdir(raiz).catch(() => [] as string[])).sort().reverse();
+  for (const e of execucoes) {
+    const dir = path.join(raiz, e);
+    if (await imprimirCaminho(dir)) {
+      out(`(execução de ${e})`);
+      return { dir, ok: true };
+    }
+  }
+  out('Nenhuma execução do robô encontrada em dados/teste-campo.');
+  return { dir: raiz, ok: false };
+}
+
 // ---------------------------------------------------------------------------
 export async function testeCampoPdf(arquivo: string, uc: string | undefined, baseDados: string): Promise<SaidaTeste> {
   const dir = await novaPasta(baseDados);
@@ -165,6 +219,7 @@ export async function testeCampoRobo(entrada: EntradaTesteRobo, opcoes: OpcoesRo
     await robo.fechar();
     await fs.writeFile(path.join(dir, 'resumo.json'), JSON.stringify(resumo, null, 2));
   }
+  if (!ok || robo.rastreio.etapas.some((e) => e.startsWith('manual'))) await imprimirCaminho(dir);
   out(`\nEtapas percorridas: ${robo.rastreio.etapas.join(' → ')}`);
   out(`Arquivos em: ${dir}`);
   out('  rastreio/ tem prints e o mapa de cada tela (sem senha) — é com ele que se calibram os seletores.');
