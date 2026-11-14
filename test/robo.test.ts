@@ -90,6 +90,11 @@ describe('Robô contra portal simulado', () => {
     expect(r.detalhe).not.toMatch(/Dados incorretos impedem/);
   });
 
+  it('UC dentro de lista suspensa (combobox): abre a lista e escolhe a UC', async () => {
+    const r = await rodar('resposta', '12345678', {}, CRED, { loginEmDialogo: true, ucEmCombobox: true });
+    expect(r.status).toBe('ok');
+  });
+
   it('página de bloqueio do CDN: bloqueado, sem tentar contornar', async () => {
     const r = await rodar('bloqueado', '12345678');
     expect(r.status).toBe('bloqueado');

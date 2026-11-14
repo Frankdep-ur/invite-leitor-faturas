@@ -20,6 +20,8 @@ export const BASE_MOCK = 'https://portal.teste';
 export interface OpcoesPortal {
   /** Como no portal real: a página tem só o botão LOGIN no topo; o formulário abre num diálogo. */
   loginEmDialogo?: boolean;
+  /** UCs numa lista suspensa (combobox estilo Angular Material), visíveis só depois de abrir. */
+  ucEmCombobox?: boolean;
 }
 
 function htmlApp(modo: ModoPortal, pdfB64: string, opts: OpcoesPortal = {}): string {
@@ -29,6 +31,7 @@ function htmlApp(modo: ModoPortal, pdfB64: string, opts: OpcoesPortal = {}): str
 <script>
 const PDF_LOCAL = ${pdfEmbutido};
 const DIALOGO = ${opts.loginEmDialogo ? 'true' : 'false'};
+const COMBO = ${opts.ucEmCombobox ? 'true' : 'false'};
 const app = document.getElementById('app');
 function ir(h){ location.hash = h; }
 function render(){
@@ -79,6 +82,16 @@ function render(){
       else document.getElementById('msg').textContent = 'Senha inválida. Tente novamente.';
     });
     if (!h.startsWith('#/login')) ir('#/login');
+    return;
+  }
+  if (h === '#/home' && COMBO) {
+    app.innerHTML = '<p>Olá, Cliente <a href="#/login" onclick="localStorage.clear()">Sair</a></p>'
+      + '<label>Imóvel</label><div role="combobox" tabindex="0" id="combo">Selecione o imóvel</div><div id="lista"></div>';
+    document.getElementById('combo').addEventListener('click', () => {
+      document.getElementById('lista').innerHTML = '<div role="listbox">'
+        + '<div role="option" onclick="ir(\\'#/uc/12345678\\')">Instalação 1234.5678 - Rua A, 1</div>'
+        + '<div role="option" onclick="ir(\\'#/uc/22223333\\')">Instalação 2222.3333 - Rua B, 2</div></div>';
+    });
     return;
   }
   if (h === '#/home') {

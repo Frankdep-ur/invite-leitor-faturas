@@ -265,14 +265,33 @@ export class RoboNeoenergia {
    * Enquanto espera, registra no rastreio cada tela por onde a pessoa passa: é assim que
    * o robô "aprende" o caminho real do portal para a próxima calibração.
    */
-  private async esperarPessoa(motivo: string, condicao: () => Promise<boolean>): Promise<boolean> {
+  private async esperarPessoa(motivo: string, condicao: () => Promise<boolean>, opts: { enterConfirma?: boolean } = {}): Promise<boolean> {
     if (!this.assistido || this.headless) return false;
-    this.log(`>>> AÇÃO MANUAL: ${motivo} (aguardando até ${Math.round(this.esperaAssistidoMs / 1000)} s)`);
+    const stdin = process.stdin;
+    const porEnter = Boolean(opts.enterConfirma && stdin.isTTY);
+    this.log(
+      `>>> AÇÃO MANUAL: ${motivo}${porEnter ? ' — quando terminar, APERTE ENTER AQUI NO TERMINAL' : ''} (aguardando até ${Math.round(this.esperaAssistidoMs / 1000)} s)`,
+    );
+    let enter = false;
+    const aoDigitar = (d: Buffer | string) => {
+      if (/[\r\n]/.test(String(d))) enter = true;
+    };
+    if (porEnter) {
+      stdin.setEncoding('utf8');
+      stdin.on('data', aoDigitar);
+      stdin.resume();
+    }
     const fim = Date.now() + this.esperaAssistidoMs;
     let urlAnterior = this.page?.url() ?? '';
     let telas = 0;
     try {
       while (Date.now() < fim) {
+        if (enter) {
+          this.log('ok, seguindo a partir da tela atual.');
+          await this.assentar();
+          await this.rastreio.etapa(this.p, 'manual_confirmado');
+          return true;
+        }
         if (await condicao().catch(() => false)) return true;
         const url = this.p.url();
         if (url !== urlAnterior && telas < 12) {
@@ -285,6 +304,46 @@ export class RoboNeoenergia {
       }
     } catch {
       /* janela fechada pela pessoa */
+    } finally {
+      if (porEnter) {
+        stdin.off('data', aoDigitar);
+        stdin.pause();
+      }
+    }
+    return false;
+  }
+
+  /** UC dentro de lista suspensa (<select> ou combobox do Angular Material): abre e escolhe. */
+  private async ucEmListaSuspensa(reUc: RegExp): Promise<boolean> {
+    const p = this.p;
+    const selects = p.locator('select:visible');
+    const nSel = await selects.count().catch(() => 0);
+    for (let i = 0; i < Math.min(nSel, 5); i++) {
+      const sel = selects.nth(i);
+      const valor = await sel
+        .evaluate((e, fonte) => {
+          const re = new RegExp(fonte);
+          return [...(e as HTMLSelectElement).options].find((o) => re.test(o.text.replace(/\s+/g, ' ')))?.value ?? null;
+        }, reUc.source)
+        .catch(() => null);
+      if (valor !== null) {
+        await sel.selectOption(valor);
+        await this.assentar();
+        return true;
+      }
+    }
+    const combos = p.locator('mat-select:visible, [role=combobox]:visible');
+    const n = await combos.count().catch(() => 0);
+    for (let i = 0; i < Math.min(n, 5); i++) {
+      await combos.nth(i).click().catch(() => {});
+      const opcao = p.getByRole('option', { name: reUc }).first();
+      const abriu = await opcao.waitFor({ state: 'visible', timeout: 2_500 }).then(() => true).catch(() => false);
+      if (abriu) {
+        await opcao.click().catch(() => {});
+        await this.assentar();
+        return true;
+      }
+      await p.keyboard.press('Escape').catch(() => {});
     }
     return false;
   }
@@ -393,6 +452,7 @@ export class RoboNeoenergia {
       const ok = await this.esperarPessoa(
         'na janela do Chrome, abra a tela onde aparecem os campos de CPF/CNPJ e senha (NÃO digite nada: o robô preenche)',
         async () => Boolean(await this.esperarVisivel(this.candidatosSenha(), 0)),
+        { enterConfirma: true },
       );
       senhaLoc = ok ? ((await this.esperarVisivel(this.candidatosSenha(), 2_000))?.loc ?? null) : null;
       if (!senhaLoc) return this.falha('layout', 'O formulário de login (CPF/CNPJ e senha) não apareceu.', 'login_campos');
@@ -529,17 +589,25 @@ export class RoboNeoenergia {
       }
       achou = await this.esperarVisivel([textoUc], this.timeoutMs);
     }
-    if (!achou) {
+    let naLista = false;
+    if (!achou) naLista = await this.ucEmListaSuspensa(reUc);
+    if (!achou && !naLista) {
       const trocar = await this.esperarVisivel([() => this.clicavel(SELETORES.ucs.trocar)], 2_000);
       if (trocar) {
         await this.clicarEAguardar(trocar.loc);
         achou = await this.esperarVisivel([textoUc], this.timeoutMs);
+        if (!achou) naLista = await this.ucEmListaSuspensa(reUc);
       }
     }
     if (achou) {
       await this.clicarEAguardar(achou.loc);
-    } else {
-      const ok = await this.esperarPessoa(`selecione a UC ${digitos} na janela`, async () => textoUc().isVisible());
+    } else if (!naLista) {
+      await this.rastreio.etapa(p, 'uc_procurando');
+      const ok = await this.esperarPessoa(
+        `na janela do Chrome, escolha o imóvel/UC ${digitos} (ou confira se já está nele)`,
+        async () => textoUc().isVisible(),
+        { enterConfirma: true },
+      );
       if (!ok) {
         await this.rastreio.etapa(p, 'uc_nao_encontrada');
         const dica = digitos.length === 7 || digitos.length === 8 ? ' (7 ou 8 dígitos é o formato do "código débito em conta", não da UC: confira na fatura)' : '';
