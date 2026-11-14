@@ -110,11 +110,11 @@ describe('Robô contra portal simulado', () => {
     expect(r.status).toBe('ok');
   });
 
-  async function rodarReal(uc: string) {
+  async function rodarReal(uc: string, extra: OpcoesPortal = {}) {
     const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'real-'));
     const robo = new RoboNeoenergia({
       baseUrl: BASE_MOCK, headless: true, timeoutMs: 6_000, rastreioDir: dir,
-      aoCriarContexto: (ctx) => instalarPortal(ctx, 'resposta', PDF, { estiloReal: true }),
+      aoCriarContexto: (ctx) => instalarPortal(ctx, 'resposta', PDF, { estiloReal: true, ...extra }),
     });
     await robo.abrir();
     try {
@@ -132,6 +132,13 @@ describe('Robô contra portal simulado', () => {
     expect(r.status).toBe('ok');
     for (const e of ['meus_imoveis', 'uc_selecionada', 'servico_faturas', 'opcoes_fatura', 'janela_baixar', 'pdf_capturado']) expect(etapas).toContain(e);
     expect(etapas).not.toContain('inicio_busca'); // não precisou da busca genérica
+  });
+
+  it('PORTAL REAL com a lista de UCs demorando a carregar ("Aguarde um instante...")', async () => {
+    const { r, etapas } = await rodarReal('123.456.789-01', { listaLenta: true });
+    expect(r.status).toBe('ok');
+    expect(etapas).toContain('meus_imoveis');
+    expect(etapas).not.toContain('meus_imoveis_nao_abriu');
   });
 
   it('PORTAL REAL com o código ANTIGO do cliente (7 dígitos): acha pela pesquisa e baixa', async () => {

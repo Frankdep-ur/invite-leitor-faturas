@@ -30,6 +30,8 @@ export interface OpcoesPortal {
    * o imóvel (UC) e só então mostra as faturas.
    */
   estiloReal?: boolean;
+  /** Lista de UCs demora a carregar ("Aguarde um instante..."), como no portal real. */
+  listaLenta?: boolean;
 }
 
 function htmlApp(modo: ModoPortal, pdfB64: string, opts: OpcoesPortal = {}): string {
@@ -41,6 +43,7 @@ const PDF_LOCAL = ${pdfEmbutido};
 const DIALOGO = ${opts.loginEmDialogo ? 'true' : 'false'};
 const COMBO = ${opts.ucEmCombobox ? 'true' : 'false'};
 const REAL = ${opts.estiloReal ? 'true' : 'false'};
+const LENTA = ${opts.listaLenta ? 'true' : 'false'};
 const app = document.getElementById('app');
 function ir(h){ location.hash = h; }
 function render(){
@@ -160,7 +163,10 @@ function renderReal(h, logado) {
     : '<header><nav><button>Início</button> <button>Para Você<i>expand_more</i></button> <button class="btn-login">LOGIN</button></nav></header>';
   let corpo = '<h2>Mais por você</h2><p>Acesso rápido aos principais serviços</p><h3>Destaques</h3>';
   const sel = sessionStorage.getItem('ucSel');
-  if (logado && h.startsWith('#/home/meus-imoveis')) {
+  if (logado && h.startsWith('#/home/meus-imoveis') && LENTA && !window.__listaPronta) {
+    corpo = '<p>Aguarde um instante...</p>';
+    setTimeout(() => { window.__listaPronta = true; if (location.hash.startsWith('#/home/meus-imoveis')) render(); }, 3000);
+  } else if (logado && h.startsWith('#/home/meus-imoveis')) {
     const filtro = sessionStorage.getItem('filtro') || '';
     const lista = Object.entries(UCS_REAIS).filter(([d, u]) => !filtro || d === filtro || u.codigo === filtro);
     corpo = '<h2>Unidades Consumidoras</h2><p>Escolha abaixo a unidade consumidora que deseja consultar</p>'

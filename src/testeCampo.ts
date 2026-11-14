@@ -1,4 +1,5 @@
 import { promises as fs } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { extrairTextoPdf } from './leitor/pdfTexto.js';
 import { lerFaturaNeoenergia, type LeituraFatura } from './leitor/faturaNeoenergia.js';
@@ -191,7 +192,13 @@ export function lerEntradaTeste(env: NodeJS.ProcessEnv): EntradaTesteRobo {
 export async function testeCampoRobo(entrada: EntradaTesteRobo, opcoes: OpcoesRobo, baseDados: string): Promise<SaidaTeste> {
   const dir = await novaPasta(baseDados);
   const robo = new RoboNeoenergia({ ...opcoes, rastreioDir: path.join(dir, 'rastreio'), log: (m) => out(`  [robô] ${m}`) });
-  out(`Teste de campo — robô próprio`);
+  let versao = 'desconhecida';
+  try {
+    versao = execFileSync('git', ['log', '-1', '--format=%h %cd', '--date=format:%d/%m %H:%M'], { encoding: 'utf8' }).trim();
+  } catch {
+    /* sem git */
+  }
+  out(`Teste de campo — robô próprio (versão ${versao})`);
   out(`  login ${entrada.tipoLogin.toUpperCase()} ${mascararDoc(entrada.login)} | UF ${entrada.uf} | UCs: ${entrada.ucs.join(', ')}`);
   out(`  janela visível: ${opcoes.headless ? 'não' : 'sim'} | modo assistido: ${opcoes.assistido ? 'sim' : 'não'}`);
   const resumo: Record<string, unknown>[] = [];

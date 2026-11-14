@@ -608,8 +608,16 @@ export class RoboNeoenergia {
   // -------------------------------------------------------------------------
   // UC e fatura
   // -------------------------------------------------------------------------
+  /**
+   * Vai para uma rota da SPA SEM recarregar a página: troca só o "#..." do endereço, como os
+   * links do próprio portal fazem (recarregar pode perder o estado da sessão). Se a página
+   * atual não for do portal, usa navegação normal.
+   */
   private async irParaRota(rota: string): Promise<void> {
-    await this.p.goto(`${this.baseUrl}${rota}`, { waitUntil: 'domcontentloaded' }).catch(() => {});
+    const hash = rota.slice(rota.indexOf('#'));
+    const noPortal = this.p.url().startsWith(this.baseUrl);
+    if (noPortal) await this.p.evaluate((h) => { if (location.hash !== h) location.hash = h; }, hash).catch(() => {});
+    else await this.p.goto(`${this.baseUrl}${rota}`, { waitUntil: 'domcontentloaded' }).catch(() => {});
     await this.assentar();
   }
 
@@ -627,13 +635,35 @@ export class RoboNeoenergia {
   private async caminhoPortal(digitos: string, reUc: RegExp): Promise<ResultadoRobo | 'ok' | null> {
     const p = this.p;
     const C = SELETORES.caminho;
-    const urlAntes = p.url();
+    const hashAntes = await p.evaluate(() => location.hash).catch(() => '');
+    const verLista = (ms: number) =>
+      this.esperarVisivel([() => p.getByText(C.tituloUcs).first(), () => p.getByPlaceholder(C.buscaUc).first()], ms);
+
+    // 1ª tentativa: rota da lista de UCs (a lista carrega com "Aguarde um instante...": espera o prazo todo).
     await this.irParaRota(C.rotaUcs);
-    const lista = await this.esperarVisivel([() => p.getByText(C.tituloUcs).first(), () => p.getByPlaceholder(C.buscaUc).first()], 8_000);
+    let lista = await verLista(this.timeoutMs);
     if (!lista) {
-      // Não é o portal calibrado: volta para onde estava e deixa a busca genérica seguir.
-      await p.goto(urlAntes, { waitUntil: 'domcontentloaded' }).catch(() => {});
-      await this.assentar();
+      await this.rastreio.etapa(p, 'meus_imoveis_nao_abriu');
+      // 2ª tentativa: botão "Minhas Unidades"/"Meus imóveis", ou o menu do usuário ("Olá, Fulano").
+      let atalho = await this.esperarVisivel([() => this.clicavel(C.atalhoUcs), () => p.getByText(C.atalhoUcs).first()], 1_000);
+      if (!atalho) {
+        const ola = await this.esperarVisivel([() => this.clicavel(C.menuUsuario), () => p.getByText(C.menuUsuario).first()], 1_000);
+        if (ola) {
+          await ola.loc.click().catch(() => {});
+          await this.pausa(800);
+          await this.rastreio.etapa(p, 'menu_usuario');
+          atalho = await this.esperarVisivel([() => this.clicavel(C.atalhoUcs), () => p.getByText(C.atalhoUcs).first()], 2_000);
+        }
+      }
+      if (atalho) {
+        await this.clicarEAguardar(atalho.loc);
+        lista = await verLista(this.timeoutMs);
+      }
+    }
+    if (!lista) {
+      // Não é o portal calibrado: volta (sem recarregar) e deixa a busca genérica seguir.
+      // Não volta para rota de login: no portal real ela reabre a janela de login.
+      if (hashAntes && !/login/i.test(hashAntes)) await this.irParaRota(hashAntes);
       return null;
     }
     await this.rastreio.etapa(p, 'meus_imoveis');

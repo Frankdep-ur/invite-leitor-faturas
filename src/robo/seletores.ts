@@ -121,6 +121,9 @@ export const SELETORES = {
    */
   caminho: {
     rotaUcs: '/#/home/meus-imoveis',
+    /** Outros jeitos de chegar à lista de UCs, se a rota direta não abrir. */
+    atalhoUcs: /minhas\s+unidades|meus\s+im[óo]veis|^\s*unidades\s+consumidoras\s*$/i,
+    menuUsuario: /^\s*ol[áa],/i,
     tituloUcs: /^\s*unidades\s+consumidoras\s*$/i,
     buscaUc: /c[óo]digo\s+do\s+cliente|n[úu]mero\s+da\s+(unidade|uc)/i,
     pesquisar: /^\s*pesquisar\s*$/i,
